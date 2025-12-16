@@ -39,28 +39,20 @@ class IconProcessor:
             
             # --- 1. 缩放处理 ---
             orig_w, orig_h = img.size
-            # 基础适配比例：先计算让图片短边填满目标size的基础比例
             base_scale = max(size / orig_w, size / orig_h)
-            # 最终应用缩放：基础比例 * 用户滑块缩放系数
             final_scale = base_scale * zoom
             
             new_w = int(orig_w * final_scale)
             new_h = int(orig_h * final_scale)
             
-            # 高质量重采样
             img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
             # --- 2. 创建画布并居中 ---
-            # 创建一个透明底图
             background = Image.new('RGBA', (size, size), (0, 0, 0, 0))
-            
-            # 计算粘贴位置（居中）
             paste_x = (size - new_w) // 2
             paste_y = (size - new_h) // 2
-            
-            # 将缩放后的图粘贴到底图上
             background.paste(img, (paste_x, paste_y))
-            img = background # 现在 img 是已经处理好尺寸的图
+            img = background 
 
             # --- 3. 创建遮罩 ---
             mask = Image.new('L', (size, size), 0)
@@ -71,24 +63,21 @@ class IconProcessor:
             elif shape == 'circle':
                 draw.ellipse((0, 0, size, size), fill=255)
             elif shape == 'rounded':
-                # 圆角矩形 (半径为 18%)
                 r = int(size * 0.18)
                 draw.rounded_rectangle((0, 0, size, size), radius=r, fill=255)
             elif shape == 'heart':
-                # 简单的心形模拟
                 scale_heart = 0.9 
                 offset_x = size * (1 - scale_heart) / 2
                 offset_y = size * (1 - scale_heart) / 2
                 s = size * scale_heart
                 
-                # 使用多边形近似心形
                 draw.polygon([
-                    (size/2, s * 0.95 + offset_y), # 底尖
-                    (s * 0.05 + offset_x, s * 0.4 + offset_y), # 左侧
-                    (s * 0.25 + offset_x, s * 0.1 + offset_y), # 左上峰
-                    (size/2, s * 0.3 + offset_y), # 中间凹陷
-                    (s * 0.75 + offset_x, s * 0.1 + offset_y), # 右上峰
-                    (s * 0.95 + offset_x, s * 0.4 + offset_y)  # 右侧
+                    (size/2, s * 0.95 + offset_y),
+                    (s * 0.05 + offset_x, s * 0.4 + offset_y),
+                    (s * 0.25 + offset_x, s * 0.1 + offset_y),
+                    (size/2, s * 0.3 + offset_y),
+                    (s * 0.75 + offset_x, s * 0.1 + offset_y),
+                    (s * 0.95 + offset_x, s * 0.4 + offset_y)
                 ], fill=255)
 
             # --- 4. 应用遮罩 ---
@@ -114,7 +103,7 @@ class IconGeneratorDialog:
         self.callback = callback
         self.default_save_dir = default_save_dir
         self.source_image_path = None
-        self.preview_image_obj = None # 保持引用
+        self.preview_image_obj = None 
         self.processed_pil_image = None 
         self.zoom_val = 1.0
         
@@ -125,7 +114,6 @@ class IconGeneratorDialog:
         self.setup_ui()
 
     def setup_ui(self):
-        # 主布局
         main_frame = ttk.Frame(self.top)
         main_frame.pack(fill="both", expand=True, padx=15, pady=15)
         
@@ -183,13 +171,11 @@ class IconGeneratorDialog:
         # 5. 底部按钮
         ttk.Button(right_frame, text="仅导出 ICO...", command=self.export_ico).pack(fill="x", pady=(0, 10))
         
-        # 绿色应用按钮
         self.btn_apply = tk.Button(right_frame, text="✅ 使用此图标", bg="#28a745", fg="white", 
                                    font=("微软雅黑", 10, "bold"), relief="flat", cursor="hand2",
                                    command=self.apply_icon)
         self.btn_apply.pack(fill="x", ipady=8)
         
-        # 路径提示
         display_dir = "当前目录"
         if self.default_save_dir and os.path.exists(self.default_save_dir):
             display_dir = os.path.basename(self.default_save_dir)
@@ -316,7 +302,7 @@ class EnvManager:
 
 
 # ===========================
-# 4. 打包工具类
+# 4. 打包工具类 (支持 UPX)
 # ===========================
 class BaseTool:
     def __init__(self, env_manager):
@@ -336,6 +322,20 @@ class BaseTool:
 
     def check_compatibility(self):
         return True, "兼容"
+    
+    # 辅助方法：查找 tools 目录下的 upx.exe
+    def find_upx_path(self):
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        tools_dir = os.path.join(base_dir, "tools")
+        
+        if not os.path.exists(tools_dir):
+            return None
+            
+        # 遍历 tools 目录寻找 upx.exe
+        for root, dirs, files in os.walk(tools_dir):
+            if "upx.exe" in files:
+                return root # 返回包含 upx.exe 的目录路径
+        return None
 
 class PyInstallerTool(BaseTool):
     def __init__(self, env_manager):
@@ -343,7 +343,7 @@ class PyInstallerTool(BaseTool):
         self.name = "PyInstaller"
         self.module_name = "PyInstaller"
 
-    def get_build_info(self, target_file, output_dir, no_console, icon_path):
+    def get_build_info(self, target_file, output_dir, no_console, icon_path, use_upx):
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
         
@@ -358,6 +358,17 @@ class PyInstallerTool(BaseTool):
             cmd.append("-w")
         if icon_path and os.path.exists(icon_path):
             cmd.extend(["--icon", icon_path])
+        
+        # UPX 配置
+        if use_upx:
+            upx_dir = self.find_upx_path()
+            if upx_dir:
+                cmd.extend(["--upx-dir", upx_dir])
+            else:
+                print("Warning: UPX enabled but not found in tools.")
+        else:
+             cmd.append("--noupx")
+
         return cmd, None
 
 class NuitkaTool(BaseTool):
@@ -372,7 +383,7 @@ class NuitkaTool(BaseTool):
             return False, f"警告: Nuitka 可能尚不支持 {ver_str}，建议使用 3.10-3.12"
         return True, "兼容"
 
-    def get_build_info(self, target_file, output_dir, no_console, icon_path):
+    def get_build_info(self, target_file, output_dir, no_console, icon_path, use_upx):
         base_dir = os.path.dirname(os.path.abspath(__file__))
         mingw_bin = os.path.join(base_dir, "tools", MINGW_DIR_NAME, "mingw64", "bin")
 
@@ -404,7 +415,22 @@ class NuitkaTool(BaseTool):
         if icon_path and os.path.exists(icon_path):
             cmd.append(f"--windows-icon-from-ico={icon_path}")
         
-        return cmd, custom_env, found_compiler, mingw_bin
+        # UPX 配置
+        upx_found_path = None
+        if use_upx:
+            upx_dir = self.find_upx_path()
+            if upx_dir:
+                cmd.append("--enable-plugin=upx")
+                # 将 UPX 路径注入 PATH，Nuitka 会自动检测
+                custom_env["PATH"] = upx_dir + os.pathsep + custom_env["PATH"]
+                upx_found_path = upx_dir
+            else:
+                # 如果没找到，Nuitka 可能会报错或跳过，这里可以选择添加 --disable-plugin=upx
+                pass
+        else:
+            cmd.append("--disable-plugin=upx")
+        
+        return cmd, custom_env, found_compiler, mingw_bin, upx_found_path
 
 
 # ===========================
@@ -413,8 +439,8 @@ class NuitkaTool(BaseTool):
 class PackerApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Python 聚合打包工具 Pro")
-        self.root.geometry("900x820")
+        self.root.title("Python 聚合打包工具 Pro (UPX版)")
+        self.root.geometry("900x850") # 增加高度
 
         self.env_manager = EnvManager()
         self.target_file = ""
@@ -462,9 +488,15 @@ class PackerApp:
         self.var_tool = tk.StringVar(value="nuitka")
         ttk.Radiobutton(f5, text="Nuitka (高性能)", variable=self.var_tool, value="nuitka").pack(side="left", padx=10)
         ttk.Radiobutton(f5, text="PyInstaller", variable=self.var_tool, value="pyinstaller").pack(side="left", padx=10)
+        
         ttk.Separator(f5, orient="vertical").pack(side="left", fill="y", padx=10)
+        
+        # 选项列
         self.var_noconsole = tk.BooleanVar(value=True)
         ttk.Checkbutton(f5, text="去除黑窗口 (No Console)", variable=self.var_noconsole).pack(side="left", padx=10)
+        
+        self.var_upx = tk.BooleanVar(value=True)
+        ttk.Checkbutton(f5, text="开启 UPX 压缩 (减小体积)", variable=self.var_upx).pack(side="left", padx=10)
 
         # 6. 运行
         f6 = ttk.Frame(self.root)
@@ -473,7 +505,7 @@ class PackerApp:
         self.btn_run.pack(fill="x", ipady=8)
 
         # 7. 日志
-        self.log_txt = scrolledtext.ScrolledText(self.root, height=12)
+        self.log_txt = scrolledtext.ScrolledText(self.root, height=10)
         self.log_txt.pack(fill="both", expand=True, padx=10, pady=5)
 
     def log(self, msg):
@@ -547,6 +579,7 @@ class PackerApp:
         out = self.var_out.get()
         ico = self.var_icon.get()
         nocon = self.var_noconsole.get()
+        use_upx = self.var_upx.get()
         
         tool = PyInstallerTool(self.env_manager) if self.var_tool.get() == "pyinstaller" else NuitkaTool(self.env_manager)
         
@@ -559,10 +592,23 @@ class PackerApp:
                 return
 
         if isinstance(tool, NuitkaTool):
-            cmd, env, found_cc, mingw = tool.get_build_info(self.target_file, out, nocon, ico)
-            if not found_cc: self.log("未找到本地 MinGW，Nuitka 将尝试下载。\n")
+            # 获取构建信息，包含UPX路径
+            cmd, env, found_cc, mingw, upx_path = tool.get_build_info(self.target_file, out, nocon, ico, use_upx)
+            
+            if not found_cc: 
+                self.log("提示：未找到本地 MinGW，Nuitka 将尝试下载。\n")
+            if use_upx:
+                if upx_path:
+                    self.log(f"已启用 UPX 压缩，使用本地路径: {upx_path}\n")
+                else:
+                    self.log("警告：勾选了 UPX 但未在 tools 目录中找到 upx.exe，Nuitka 将尝试自动寻找或忽略。\n")
         else:
-            cmd, env = tool.get_build_info(self.target_file, out, nocon, ico)
+            # PyInstaller
+            cmd, env = tool.get_build_info(self.target_file, out, nocon, ico, use_upx)
+            if use_upx and "--upx-dir" not in cmd:
+                 self.log("警告：勾选了 UPX 但未在 tools 目录中找到 upx.exe，PyInstaller 可能无法压缩。\n")
+            elif use_upx:
+                 self.log("已启用 UPX 压缩 (PyInstaller)\n")
 
         self.log(f"命令: {' '.join(cmd)}\n\n")
         if run_command(cmd, self.log, env):
