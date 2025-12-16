@@ -1,60 +1,215 @@
-import tkinter as tk
-from tkinter import ttk, filedialog, scrolledtext, messagebox
 import sys
 import os
 import subprocess
 import threading
+import time
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
+                             QGroupBox, QLabel, QLineEdit, QPushButton, QRadioButton, 
+                             QCheckBox, QTextEdit, QFileDialog, QComboBox, QSlider, 
+                             QMessageBox, QDialog, QGraphicsDropShadowEffect)
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
+from PyQt6.QtGui import QPixmap, QImage, QColor, QFont, QLinearGradient, QGradient
 
 # ===========================
-# 依赖检查：Pillow (用于图标处理)
+# 依赖检查
 # ===========================
 try:
-    from PIL import Image, ImageTk, ImageDraw
+    from PIL import Image, ImageDraw
     HAS_PILLOW = True
 except ImportError:
     HAS_PILLOW = False
 
 # ===========================
-# 配置常量
+# 全局常量与样式表
 # ===========================
 MINGW_DIR_NAME = "mingw64"
 
+# 商务简约风格 QSS
+STYLESHEET = """
+    /* 全局字体与背景 */
+    QWidget {
+        font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+        font-size: 13px;
+        color: #2c3e50;
+    }
+    QMainWindow {
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #f8f9fa, stop:1 #e9ecef);
+    }
+    
+    /* 分组框：去除边框，仅保留标题强调 */
+    QGroupBox {
+        background-color: white;
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        margin-top: 12px;
+        padding-top: 24px;
+        font-weight: bold;
+        font-size: 14px;
+        color: #34495e;
+    }
+    QGroupBox::title {
+        subcontrol-origin: margin;
+        subcontrol-position: top left;
+        padding: 0 10px;
+        left: 10px;
+        background-color: transparent; 
+        color: #2c3e50;
+    }
+
+    /* 输入框：极简线条 */
+    QLineEdit {
+        border: 1px solid #ced4da;
+        border-radius: 4px;
+        padding: 6px 10px;
+        background-color: #fcfcfc;
+        selection-background-color: #3498db;
+    }
+    QLineEdit:focus {
+        border: 1px solid #3498db;
+        background-color: white;
+    }
+    QLineEdit:read-only {
+        background-color: #f1f3f5;
+        color: #868e96;
+    }
+
+    /* 普通按钮：白色微渐变，带阴影 */
+    QPushButton {
+        background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #ffffff, stop:1 #f1f3f5);
+        border: 1px solid #ced4da;
+        border-radius: 5px;
+        padding: 6px 16px;
+        color: #495057;
+        font-weight: 500;
+    }
+    QPushButton:hover {
+        background-color: #f8f9fa;
+        border-color: #adb5bd;
+        color: #212529;
+    }
+    QPushButton:pressed {
+        background-color: #e9ecef;
+        padding-top: 7px; /* 按下位移感 */
+        padding-left: 17px;
+    }
+
+    /* 主操作按钮（Primary）：深蓝渐变 */
+    QPushButton#PrimaryBtn {
+        background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #2980b9, stop:1 #2c3e50);
+        border: none;
+        color: white;
+        font-weight: bold;
+        font-size: 15px;
+        border-radius: 6px;
+    }
+    QPushButton#PrimaryBtn:hover {
+        background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #3498db, stop:1 #34495e);
+    }
+    QPushButton#PrimaryBtn:disabled {
+        background-color: #bdc3c7;
+        color: #f0f0f0;
+    }
+
+    /* 成功按钮（Success）：墨绿渐变 */
+    QPushButton#SuccessBtn {
+        background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #27ae60, stop:1 #219150);
+        border: none;
+        color: white;
+        font-weight: bold;
+    }
+    QPushButton#SuccessBtn:hover {
+        background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #2ecc71, stop:1 #27ae60);
+    }
+
+    /* 优雅的滑动条 */
+    QSlider::groove:horizontal {
+        border: 1px solid #e0e0e0;
+        height: 6px; /* 轨道厚度 */
+        background: #ecf0f1;
+        margin: 2px 0;
+        border-radius: 3px;
+    }
+    QSlider::handle:horizontal {
+        background: white;
+        border: 1px solid #bdc3c7;
+        width: 18px;
+        height: 18px;
+        margin: -7px 0; /* 居中 */
+        border-radius: 9px; /* 圆形 */
+    }
+    QSlider::handle:horizontal:hover {
+        border-color: #3498db;
+        background: #f8f9fa;
+    }
+    QSlider::sub-page:horizontal {
+        background: #3498db; /* 选中区域颜色 */
+        border-radius: 3px;
+    }
+
+    /* 复选框与单选框 */
+    QCheckBox::indicator, QRadioButton::indicator {
+        width: 16px;
+        height: 16px;
+    }
+    QCheckBox::indicator:unchecked, QRadioButton::indicator:unchecked {
+        border: 1px solid #bdc3c7;
+        background: white;
+        border-radius: 3px; /* 复选框微圆角 */
+    }
+    QRadioButton::indicator:unchecked {
+        border-radius: 8px; /* 单选框圆形 */
+    }
+    QCheckBox::indicator:checked {
+        background-color: #3498db;
+        border: 1px solid #3498db;
+        image: url(none); /* 纯色风格，也可以用自定义图标 */
+    }
+    QRadioButton::indicator:checked {
+        background-color: #3498db;
+        border: 4px solid white; /* 同心圆效果 */
+        outline: 1px solid #3498db;
+    }
+
+    /* 日志区域 */
+    QTextEdit {
+        background-color: #1e1e1e;
+        color: #dcdcdc;
+        border: 1px solid #34495e;
+        border-radius: 6px;
+        font-family: Consolas, "Courier New", monospace;
+        padding: 8px;
+    }
+
+    /* 计时器文字 */
+    QLabel#TimerLabel {
+        font-size: 24px;
+        font-weight: 300; /* 细体更具现代感 */
+        color: #e67e22;
+        font-family: "Segoe UI Light", sans-serif;
+    }
+"""
 
 # ===========================
-# 1. 图像处理核心 (IconProcessor)
+# 1. 核心逻辑 (Icon & Tools)
 # ===========================
 class IconProcessor:
     @staticmethod
     def create_shaped_icon(image_path, shape='rounded', size=256, zoom=1.0):
-        """
-        读取图片并应用形状遮罩 + 缩放处理
-        :param zoom: 缩放比例 (0.5 - 2.0)
-        """
-        if not HAS_PILLOW:
-            return None
-
+        if not HAS_PILLOW: return None
         try:
-            # 打开并转换为 RGBA
             img = Image.open(image_path).convert("RGBA")
-            
-            # --- 1. 缩放处理 ---
             orig_w, orig_h = img.size
             base_scale = max(size / orig_w, size / orig_h)
             final_scale = base_scale * zoom
-            
-            new_w = int(orig_w * final_scale)
-            new_h = int(orig_h * final_scale)
-            
+            new_w, new_h = int(orig_w * final_scale), int(orig_h * final_scale)
             img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
-            # --- 2. 创建画布并居中 ---
             background = Image.new('RGBA', (size, size), (0, 0, 0, 0))
             paste_x = (size - new_w) // 2
             paste_y = (size - new_h) // 2
             background.paste(img, (paste_x, paste_y))
             img = background 
 
-            # --- 3. 创建遮罩 ---
             mask = Image.new('L', (size, size), 0)
             draw = ImageDraw.Draw(mask)
 
@@ -70,7 +225,6 @@ class IconProcessor:
                 offset_x = size * (1 - scale_heart) / 2
                 offset_y = size * (1 - scale_heart) / 2
                 s = size * scale_heart
-                
                 draw.polygon([
                     (size/2, s * 0.95 + offset_y),
                     (s * 0.05 + offset_x, s * 0.4 + offset_y),
@@ -80,203 +234,42 @@ class IconProcessor:
                     (s * 0.95 + offset_x, s * 0.4 + offset_y)
                 ], fill=255)
 
-            # --- 4. 应用遮罩 ---
             output = Image.new('RGBA', (size, size), (0, 0, 0, 0))
             output.paste(img, (0, 0), mask=mask)
             return output
-            
         except Exception as e:
-            print(f"图像处理错误: {e}")
             return None
 
+class WorkerSignals(QObject):
+    log = pyqtSignal(str)
+    finished = pyqtSignal(bool)
 
-# ===========================
-# 2. 图标生成器弹窗 (IconGeneratorDialog)
-# ===========================
-class IconGeneratorDialog:
-    def __init__(self, parent, callback, default_save_dir="."):
-        self.top = tk.Toplevel(parent)
-        self.top.title("图标工作台")
-        self.top.geometry("700x520")
-        self.top.resizable(False, False)
-        
-        self.callback = callback
-        self.default_save_dir = default_save_dir
-        self.source_image_path = None
-        self.preview_image_obj = None 
-        self.processed_pil_image = None 
-        self.zoom_val = 1.0
-        
-        if not HAS_PILLOW:
-            tk.Label(self.top, text="错误: 未安装 Pillow 库。\n请运行 pip install Pillow", fg="red").pack(pady=20)
-            return
+class ToolRunner(QObject):
+    def __init__(self, cmd, env):
+        super().__init__()
+        self.cmd = cmd
+        self.env = env
+        self.signals = WorkerSignals()
 
-        self.setup_ui()
-
-    def setup_ui(self):
-        main_frame = ttk.Frame(self.top)
-        main_frame.pack(fill="both", expand=True, padx=15, pady=15)
-        
-        # === 左侧：预览区 ===
-        left_frame = ttk.LabelFrame(main_frame, text=" 实时预览 ")
-        left_frame.pack(side="left", fill="both", expand=True, padx=(0, 10))
-        
-        canvas_container = ttk.Frame(left_frame)
-        canvas_container.pack(expand=True, fill="both")
-        
-        self.canvas_size = 280
-        self.canvas = tk.Canvas(canvas_container, width=self.canvas_size, height=self.canvas_size, bg="#f0f0f0", bd=0, highlightthickness=0)
-        self.canvas.pack(anchor="center", expand=True)
-        
-        self.draw_dashed_box()
-        self.lbl_hint = self.canvas.create_text(self.canvas_size/2, self.canvas_size/2, text="请打开图片", fill="#999")
-        self.preview_item = None
-
-        # === 右侧：设置区 ===
-        right_frame = ttk.Frame(main_frame, width=240)
-        right_frame.pack(side="right", fill="y")
-        right_frame.pack_propagate(False)
-        
-        # 1. 打开图片
-        self.btn_open = ttk.Button(right_frame, text="📂 打开图片 (PNG/JPG)", command=self.load_image)
-        self.btn_open.pack(fill="x", pady=(0, 20), ipady=5)
-        
-        # 2. 形状选择
-        ttk.Label(right_frame, text="图标形状:").pack(anchor="w", pady=(0, 5))
-        self.var_shape = tk.StringVar(value="rounded")
-        self.combo_shape = ttk.Combobox(right_frame, textvariable=self.var_shape, state="readonly")
-        self.combo_shape['values'] = ("圆角方形 (Rounded)", "正方形 (Square)", "圆形 (Circle)", "心形 (Heart)")
-        self.shape_map = {
-            "圆角方形 (Rounded)": "rounded",
-            "正方形 (Square)": "square",
-            "圆形 (Circle)": "circle",
-            "心形 (Heart)": "heart"
-        }
-        self.combo_shape.current(0)
-        self.combo_shape.pack(fill="x", pady=(0, 15))
-        self.combo_shape.bind("<<ComboboxSelected>>", self.update_preview)
-        
-        # 3. 缩放
-        ttk.Label(right_frame, text="缩放/裁剪:").pack(anchor="w", pady=(0, 5))
-        self.slider = ttk.Scale(right_frame, from_=0.5, to=2.0, value=1.0, command=self.on_slider_change)
-        self.slider.pack(fill="x", pady=(0, 20))
-        
-        # 4. 选项
-        self.var_transparent = tk.BooleanVar(value=True)
-        chk = ttk.Checkbutton(right_frame, text="保留透明背景", variable=self.var_transparent, state="disabled")
-        chk.pack(anchor="w", pady=(0, 20))
-        
-        ttk.Separator(right_frame, orient="horizontal").pack(fill="x", pady=(20, 20))
-        
-        # 5. 底部按钮
-        ttk.Button(right_frame, text="仅导出 ICO...", command=self.export_ico).pack(fill="x", pady=(0, 10))
-        
-        self.btn_apply = tk.Button(right_frame, text="✅ 使用此图标", bg="#28a745", fg="white", 
-                                   font=("微软雅黑", 10, "bold"), relief="flat", cursor="hand2",
-                                   command=self.apply_icon)
-        self.btn_apply.pack(fill="x", ipady=8)
-        
-        display_dir = "当前目录"
-        if self.default_save_dir and os.path.exists(self.default_save_dir):
-            display_dir = os.path.basename(self.default_save_dir)
-            
-        self.lbl_path_hint = ttk.Label(right_frame, text=f"将保存至: {display_dir}/icon.ico", 
-                                       font=("Arial", 8), foreground="#666", wraplength=230)
-        self.lbl_path_hint.pack(pady=(10, 0))
-
-    def draw_dashed_box(self):
-        pad = (self.canvas_size - 256) / 2
-        self.canvas.create_rectangle(pad, pad, self.canvas_size-pad, self.canvas_size-pad, 
-                                     outline="#ccc", width=2, dash=(5, 5))
-
-    def load_image(self):
-        path = filedialog.askopenfilename(filetypes=[("Images", "*.png;*.jpg;*.jpeg;*.webp")])
-        if path:
-            self.source_image_path = path
-            self.slider.set(1.0)
-            self.canvas.delete(self.lbl_hint)
-            self.update_preview()
-
-    def on_slider_change(self, value):
-        self.zoom_val = float(value)
-        self.update_preview()
-
-    def update_preview(self, event=None):
-        if not self.source_image_path:
-            return
-        shape_text = self.combo_shape.get()
-        shape_val = self.shape_map.get(shape_text, "rounded")
-        
-        self.processed_pil_image = IconProcessor.create_shaped_icon(
-            self.source_image_path, shape=shape_val, size=256, zoom=self.zoom_val
-        )
-        
-        if self.processed_pil_image:
-            self.preview_image_obj = ImageTk.PhotoImage(self.processed_pil_image)
-            center = self.canvas_size / 2
-            if self.preview_item:
-                self.canvas.itemconfig(self.preview_item, image=self.preview_image_obj)
-            else:
-                self.preview_item = self.canvas.create_image(center, center, image=self.preview_image_obj)
-
-    def export_ico(self):
-        if not self.processed_pil_image:
-            return
-        save_path = filedialog.asksaveasfilename(defaultextension=".ico", filetypes=[("Icon File", "*.ico")])
-        if save_path:
-            try:
-                self.processed_pil_image.save(save_path, format='ICO', sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)])
-                messagebox.showinfo("成功", f"图标已导出: {save_path}")
-            except Exception as e:
-                messagebox.showerror("错误", f"保存失败: {str(e)}")
-
-    def apply_icon(self):
-        if not self.processed_pil_image:
-            return
+    def run(self):
         try:
-            save_dir = self.default_save_dir
-            if not save_dir or not os.path.exists(save_dir):
-                save_dir = os.path.dirname(os.path.abspath(__file__))
-            else:
-                if not os.path.exists(save_dir):
-                    os.makedirs(save_dir)
-            
-            save_path = os.path.join(save_dir, "icon.ico")
-            self.processed_pil_image.save(save_path, format='ICO', sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)])
-            
-            if self.callback:
-                self.callback(save_path)
-            self.top.destroy()
+            startupinfo = None
+            if os.name == 'nt':
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+
+            process = subprocess.Popen(
+                self.cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, bufsize=1, universal_newlines=True,
+                startupinfo=startupinfo, env=self.env
+            )
+            for line in process.stdout:
+                self.signals.log.emit(line)
+            process.wait()
+            self.signals.finished.emit(process.returncode == 0)
         except Exception as e:
-            messagebox.showerror("错误", f"应用图标失败: {str(e)}")
-
-
-# ===========================
-# 3. 系统核心类 (执行与环境)
-# ===========================
-def run_command(cmd, log_callback, env=None):
-    try:
-        startupinfo = None
-        if os.name == 'nt':
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-
-        if env is None:
-            env = os.environ.copy()
-
-        process = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, bufsize=1, universal_newlines=True,
-            startupinfo=startupinfo, env=env
-        )
-
-        for line in process.stdout:
-            log_callback(line)
-        process.wait()
-        return process.returncode == 0
-    except Exception as e:
-        log_callback(f"执行出错: {str(e)}\n")
-        return False
+            self.signals.log.emit(f"Critical Error: {str(e)}\n")
+            self.signals.finished.emit(False)
 
 class EnvManager:
     def __init__(self):
@@ -287,54 +280,33 @@ class EnvManager:
             self.python_path = path
             return True
         return False
-
-    def run_pip_install(self, package_name, log_callback):
-        cmd = [self.python_path, "-m", "pip", "install", package_name]
-        log_callback(f"正在安装依赖: {' '.join(cmd)}\n")
-        return run_command(cmd, log_callback, env=None)
-
-    def get_version(self):
+    
+    def install_package(self, pkg_name, signal):
+        cmd = [self.python_path, "-m", "pip", "install", pkg_name]
+        signal.emit(f"安装依赖中: {' '.join(cmd)}\n")
         try:
-            output = subprocess.check_output([self.python_path, "--version"], text=True)
-            return output.strip()
-        except:
-            return "Unknown"
+            subprocess.check_call(cmd)
+            return True
+        except: return False
 
-
-# ===========================
-# 4. 打包工具类 (支持 UPX)
-# ===========================
 class BaseTool:
     def __init__(self, env_manager):
         self.env = env_manager
         self.name = "Base"
         self.module_name = "base"
-
+    
     def check_installed(self):
         try:
-            subprocess.check_call(
-                [self.env.python_path, "-c", f"import {self.module_name}"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-            )
+            subprocess.check_call([self.env.python_path, "-c", f"import {self.module_name}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return True
-        except subprocess.CalledProcessError:
-            return False
+        except: return False
 
-    def check_compatibility(self):
-        return True, "兼容"
-    
-    # 辅助方法：查找 tools 目录下的 upx.exe
     def find_upx_path(self):
         base_dir = os.path.dirname(os.path.abspath(__file__))
         tools_dir = os.path.join(base_dir, "tools")
-        
-        if not os.path.exists(tools_dir):
-            return None
-            
-        # 遍历 tools 目录寻找 upx.exe
+        if not os.path.exists(tools_dir): return None
         for root, dirs, files in os.walk(tools_dir):
-            if "upx.exe" in files:
-                return root # 返回包含 upx.exe 的目录路径
+            if "upx.exe" in files: return root
         return None
 
 class PyInstallerTool(BaseTool):
@@ -343,33 +315,17 @@ class PyInstallerTool(BaseTool):
         self.name = "PyInstaller"
         self.module_name = "PyInstaller"
 
-    def get_build_info(self, target_file, output_dir, no_console, icon_path, use_upx):
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-        
-        cmd = [
-            self.env.python_path, "-m", "PyInstaller",
-            "-F", target_file,
-            "--distpath", output_dir,
-            "--specpath", output_dir,
-            "--workpath", os.path.join(output_dir, "build_temp"),
-        ]
-        if no_console:
-            cmd.append("-w")
-        if icon_path and os.path.exists(icon_path):
-            cmd.extend(["--icon", icon_path])
-        
-        # UPX 配置
+    def get_build_info(self, target, out, nocon, icon, use_upx):
+        if not os.path.exists(out): os.makedirs(out)
+        cmd = [self.env.python_path, "-m", "PyInstaller", "-F", target, "--distpath", out, "--specpath", out, "--workpath", os.path.join(out, "build_temp")]
+        if nocon: cmd.append("-w")
+        if icon: cmd.extend(["--icon", icon])
         if use_upx:
-            upx_dir = self.find_upx_path()
-            if upx_dir:
-                cmd.extend(["--upx-dir", upx_dir])
-            else:
-                print("Warning: UPX enabled but not found in tools.")
-        else:
-             cmd.append("--noupx")
-
-        return cmd, None
+            upx = self.find_upx_path()
+            if upx: cmd.extend(["--upx-dir", upx])
+            else: cmd.append("--noupx")
+        else: cmd.append("--noupx")
+        return cmd, None, None
 
 class NuitkaTool(BaseTool):
     def __init__(self, env_manager):
@@ -377,177 +333,386 @@ class NuitkaTool(BaseTool):
         self.name = "Nuitka"
         self.module_name = "nuitka"
 
-    def check_compatibility(self):
-        ver_str = self.env.get_version()
-        if "3.13" in ver_str or "3.14" in ver_str:
-            return False, f"警告: Nuitka 可能尚不支持 {ver_str}，建议使用 3.10-3.12"
-        return True, "兼容"
-
-    def get_build_info(self, target_file, output_dir, no_console, icon_path, use_upx):
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        mingw_bin = os.path.join(base_dir, "tools", MINGW_DIR_NAME, "mingw64", "bin")
-
-        if not os.path.exists(mingw_bin):
-            mingw_bin_fallback = os.path.join(base_dir, "tools", MINGW_DIR_NAME, "bin")
-            if os.path.exists(mingw_bin_fallback):
-                mingw_bin = mingw_bin_fallback
-
-        custom_env = os.environ.copy()
-        found_compiler = False
-        if os.path.exists(mingw_bin) and os.path.join(mingw_bin, "gcc.exe"):
-            custom_env["PATH"] = mingw_bin + os.pathsep + custom_env["PATH"]
-            found_compiler = True
-
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-
-        cmd = [
-            self.env.python_path, "-m", "nuitka",
-            "--standalone", "--onefile",
-            "--enable-plugin=tk-inter",
-            "--assume-yes-for-downloads",
-            "--remove-output",
-            f"--output-dir={output_dir}",
-            target_file
-        ]
-        if no_console:
-            cmd.append("--windows-disable-console")
-        if icon_path and os.path.exists(icon_path):
-            cmd.append(f"--windows-icon-from-ico={icon_path}")
+    def get_build_info(self, target, out, nocon, icon, use_upx):
+        base = os.path.dirname(os.path.abspath(__file__))
+        mingw = os.path.join(base, "tools", MINGW_DIR_NAME, "mingw64", "bin")
+        if not os.path.exists(mingw): 
+            mingw_fallback = os.path.join(base, "tools", MINGW_DIR_NAME, "bin")
+            if os.path.exists(mingw_fallback): mingw = mingw_fallback
         
-        # UPX 配置
-        upx_found_path = None
+        c_env = os.environ.copy()
+        found_cc = False
+        if os.path.exists(mingw) and os.path.exists(os.path.join(mingw, "gcc.exe")):
+            c_env["PATH"] = mingw + os.pathsep + c_env["PATH"]
+            found_cc = True
+            
+        if not os.path.exists(out): os.makedirs(out)
+        cmd = [self.env.python_path, "-m", "nuitka", "--standalone", "--onefile", "--enable-plugin=tk-inter", "--assume-yes-for-downloads", "--remove-output", f"--output-dir={out}", target]
+        if nocon: cmd.append("--windows-disable-console")
+        if icon: cmd.append(f"--windows-icon-from-ico={icon}")
+        
+        upx_found = False
         if use_upx:
-            upx_dir = self.find_upx_path()
-            if upx_dir:
+            upx = self.find_upx_path()
+            if upx:
                 cmd.append("--enable-plugin=upx")
-                # 将 UPX 路径注入 PATH，Nuitka 会自动检测
-                custom_env["PATH"] = upx_dir + os.pathsep + custom_env["PATH"]
-                upx_found_path = upx_dir
-            else:
-                # 如果没找到，Nuitka 可能会报错或跳过，这里可以选择添加 --disable-plugin=upx
-                pass
-        else:
-            cmd.append("--disable-plugin=upx")
+                c_env["PATH"] = upx + os.pathsep + c_env["PATH"]
+                upx_found = True
+        if not upx_found: cmd.append("--disable-plugin=upx")
+
+        return cmd, c_env, found_cc
+
+# ===========================
+# 2. 图标工作台 (QDialog)
+# ===========================
+class IconGeneratorDialog(QDialog):
+    def __init__(self, parent, callback, default_save_dir="."):
+        super().__init__(parent)
+        self.setWindowTitle("图标工作台")
+        self.setFixedSize(720, 480)
+        self.setWindowModality(Qt.WindowModality.ApplicationModal)
         
-        return cmd, custom_env, found_compiler, mingw_bin, upx_found_path
-
-
-# ===========================
-# 5. 主程序界面 (PackerApp)
-# ===========================
-class PackerApp:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Python 聚合打包工具 Pro (UPX版)")
-        self.root.geometry("900x850") # 增加高度
-
-        self.env_manager = EnvManager()
-        self.target_file = ""
-        self.icon_path = "" 
-
-        self.setup_ui()
+        # 白色背景
+        self.setStyleSheet("QDialog { background-color: #ffffff; }")
+        
+        self.callback = callback
+        self.default_save_dir = default_save_dir
+        self.img_path = None
+        self.zoom = 1.0
+        
         if not HAS_PILLOW:
-            messagebox.showwarning("缺少依赖", "检测到未安装 Pillow 库，'制作图标'功能将不可用。\n建议打包前先运行: pip install Pillow")
+            layout = QVBoxLayout()
+            layout.addWidget(QLabel("错误: 未安装 Pillow 库。请先 pip install Pillow"))
+            self.setLayout(layout)
+            return
 
-    def setup_ui(self):
-        # 1. 文件选择
-        f1 = ttk.LabelFrame(self.root, text="1. 选择入口文件")
-        f1.pack(fill="x", padx=10, pady=5)
-        self.lbl_file = ttk.Label(f1, text="未选择文件")
-        self.lbl_file.pack(side="left", padx=5)
-        ttk.Button(f1, text="浏览...", command=self.select_file).pack(side="right", padx=5)
+        self.init_ui()
+
+    def init_ui(self):
+        main_layout = QHBoxLayout()
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(20)
+        self.setLayout(main_layout)
+
+        # 左侧：预览区域 (带阴影卡片效果)
+        preview_container = QWidget()
+        preview_container.setStyleSheet("""
+            QWidget {
+                background-color: #f8f9fa;
+                border: 1px dashed #ced4da;
+                border-radius: 8px;
+            }
+        """)
+        preview_layout = QVBoxLayout()
+        preview_container.setLayout(preview_layout)
+        
+        self.preview_label = QLabel("请打开图片")
+        self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.preview_label.setStyleSheet("border: none; color: #adb5bd; font-size: 14px;")
+        
+        preview_layout.addStretch()
+        preview_layout.addWidget(self.preview_label, 0, Qt.AlignmentFlag.AlignCenter)
+        preview_layout.addStretch()
+        
+        # 右侧：控制面板
+        control_panel = QWidget()
+        control_layout = QVBoxLayout()
+        control_layout.setSpacing(15)
+        control_panel.setLayout(control_layout)
+
+        # 1. 打开按钮
+        btn_open = QPushButton("打开图片 (PNG/JPG)")
+        btn_open.setFixedHeight(36)
+        btn_open.clicked.connect(self.load_image)
+        control_layout.addWidget(btn_open)
+
+        # 2. 形状
+        control_layout.addWidget(QLabel("形状裁切:"))
+        self.combo_shape = QComboBox()
+        self.combo_shape.addItems(["圆角方形 (Rounded)", "正方形 (Square)", "圆形 (Circle)", "心形 (Heart)"])
+        self.combo_shape.currentIndexChanged.connect(self.update_preview)
+        control_layout.addWidget(self.combo_shape)
+
+        # 3. 缩放
+        control_layout.addWidget(QLabel("缩放与位置:"))
+        self.slider = QSlider(Qt.Orientation.Horizontal)
+        self.slider.setMinimum(50)
+        self.slider.setMaximum(200)
+        self.slider.setValue(100)
+        self.slider.valueChanged.connect(self.on_slider_change)
+        control_layout.addWidget(self.slider)
+
+        # 4. 选项
+        self.chk_trans = QCheckBox("保留透明背景")
+        self.chk_trans.setChecked(True)
+        self.chk_trans.setEnabled(False)
+        control_layout.addWidget(self.chk_trans)
+
+        control_layout.addStretch()
+
+        # 5. 底部按钮
+        btn_export = QPushButton("仅导出 ICO")
+        btn_export.clicked.connect(self.export_ico)
+        control_layout.addWidget(btn_export)
+
+        btn_apply = QPushButton("使用此图标")
+        btn_apply.setObjectName("SuccessBtn") 
+        btn_apply.setFixedHeight(40)
+        btn_apply.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_apply.clicked.connect(self.apply_icon)
+        
+        # 按钮阴影
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(10)
+        shadow.setColor(QColor(0, 0, 0, 30))
+        shadow.setOffset(0, 3)
+        btn_apply.setGraphicsEffect(shadow)
+        
+        control_layout.addWidget(btn_apply)
+
+        main_layout.addWidget(preview_container, 6)
+        main_layout.addWidget(control_panel, 4)
+
+    def load_image(self):
+        path, _ = QFileDialog.getOpenFileName(self, "选择图片", "", "Images (*.png *.jpg *.jpeg *.webp)")
+        if path:
+            self.img_path = path
+            self.slider.setValue(100)
+            self.update_preview()
+
+    def on_slider_change(self):
+        self.zoom = self.slider.value() / 100.0
+        self.update_preview()
+
+    def get_shape_code(self):
+        idx = self.combo_shape.currentIndex()
+        return ["rounded", "square", "circle", "heart"][idx]
+
+    def update_preview(self):
+        if not self.img_path: return
+        pil_img = IconProcessor.create_shaped_icon(self.img_path, self.get_shape_code(), 256, self.zoom)
+        if pil_img:
+            self.current_pil = pil_img
+            im_data = pil_img.convert("RGBA").tobytes("raw", "RGBA")
+            qim = QImage(im_data, pil_img.size[0], pil_img.size[1], QImage.Format.Format_RGBA8888)
+            pix = QPixmap.fromImage(qim)
+            self.preview_label.setPixmap(pix.scaled(260, 260, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+            self.preview_label.setText("")
+
+    def export_ico(self):
+        if not hasattr(self, 'current_pil'): return
+        path, _ = QFileDialog.getSaveFileName(self, "保存图标", "icon.ico", "Icon Files (*.ico)")
+        if path:
+            try:
+                self.current_pil.save(path, format='ICO', sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)])
+                QMessageBox.information(self, "成功", "图标导出成功")
+            except Exception as e:
+                QMessageBox.critical(self, "错误", str(e))
+
+    def apply_icon(self):
+        if not hasattr(self, 'current_pil'): 
+            QMessageBox.warning(self, "提示", "请先加载图片")
+            return
+        try:
+            d = self.default_save_dir if self.default_save_dir else os.getcwd()
+            if not os.path.exists(d): os.makedirs(d)
+            save_path = os.path.join(d, "icon.ico")
+            self.current_pil.save(save_path, format='ICO', sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)])
+            self.callback(save_path)
+            self.accept()
+        except Exception as e:
+            QMessageBox.critical(self, "错误", str(e))
+
+# ===========================
+# 3. 主窗口
+# ===========================
+class PackerWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Python Packer Pro")
+        self.resize(920, 780)
+        self.env_manager = EnvManager()
+        self.current_icon = None
+        
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.update_timer)
+        self.start_time = 0
+        self.is_running = False
+
+        self.init_ui()
+
+    def init_ui(self):
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(25, 25, 25, 25) # 增加外边距
+        main_layout.setSpacing(15) # 增加模块间距
+        central_widget.setLayout(main_layout)
+
+        # 1. 入口文件
+        grp_file = QGroupBox("入口文件")
+        l_file = QHBoxLayout()
+        self.txt_file = QLineEdit()
+        self.txt_file.setPlaceholderText("选择主程序 .py 文件")
+        self.txt_file.setReadOnly(True)
+        btn_file = QPushButton("浏览")
+        btn_file.setFixedWidth(80)
+        btn_file.clicked.connect(self.select_file)
+        l_file.addWidget(self.txt_file)
+        l_file.addWidget(btn_file)
+        grp_file.setLayout(l_file)
+        main_layout.addWidget(grp_file)
 
         # 2. 环境
-        f2 = ttk.LabelFrame(self.root, text="2. 环境配置")
-        f2.pack(fill="x", padx=10, pady=5)
-        self.var_env_mode = tk.StringVar(value="auto")
-        ttk.Radiobutton(f2, text="自动检测 (优先 venv)", variable=self.var_env_mode, value="auto", command=self.detect_env_trigger).pack(anchor="w")
-        ttk.Radiobutton(f2, text="手动指定 python.exe", variable=self.var_env_mode, value="manual", command=self.manual_env).pack(anchor="w")
-        self.lbl_env = ttk.Label(f2, text=f"当前: {self.env_manager.python_path}", foreground="blue")
-        self.lbl_env.pack(fill="x", padx=5, pady=2)
-
-        # 3. 输出
-        f3 = ttk.LabelFrame(self.root, text="3. 输出目录")
-        f3.pack(fill="x", padx=10, pady=5)
-        self.var_out = tk.StringVar()
-        ttk.Entry(f3, textvariable=self.var_out).pack(side="left", fill="x", expand=True, padx=5)
-        ttk.Button(f3, text="浏览...", command=self.select_out).pack(side="right", padx=5)
-
-        # 4. 图标
-        f4 = ttk.LabelFrame(self.root, text="4. 图标设置")
-        f4.pack(fill="x", padx=10, pady=5)
-        self.var_icon = tk.StringVar()
-        ttk.Entry(f4, textvariable=self.var_icon).pack(side="left", fill="x", expand=True, padx=5)
-        ttk.Button(f4, text="制作图标...", command=self.open_icon_maker).pack(side="right", padx=2)
-        ttk.Button(f4, text="选择图标...", command=self.select_icon).pack(side="right", padx=2)
-
-        # 5. 工具
-        f5 = ttk.LabelFrame(self.root, text="5. 打包工具与选项")
-        f5.pack(fill="x", padx=10, pady=5)
-        self.var_tool = tk.StringVar(value="nuitka")
-        ttk.Radiobutton(f5, text="Nuitka (高性能)", variable=self.var_tool, value="nuitka").pack(side="left", padx=10)
-        ttk.Radiobutton(f5, text="PyInstaller", variable=self.var_tool, value="pyinstaller").pack(side="left", padx=10)
+        grp_env = QGroupBox("编译环境")
+        l_env = QVBoxLayout()
+        l_env.setSpacing(8)
         
-        ttk.Separator(f5, orient="vertical").pack(side="left", fill="y", padx=10)
+        h_env_opt = QHBoxLayout()
+        self.rb_auto = QRadioButton("自动检测 (venv/conda)")
+        self.rb_auto.setChecked(True)
+        self.rb_auto.toggled.connect(self.detect_env)
+        self.rb_manual = QRadioButton("手动指定")
+        self.rb_manual.toggled.connect(self.manual_env)
+        h_env_opt.addWidget(self.rb_auto)
+        h_env_opt.addWidget(self.rb_manual)
+        h_env_opt.addStretch()
+        l_env.addLayout(h_env_opt)
         
-        # 选项列
-        self.var_noconsole = tk.BooleanVar(value=True)
-        ttk.Checkbutton(f5, text="去除黑窗口 (No Console)", variable=self.var_noconsole).pack(side="left", padx=10)
+        self.lbl_env_status = QLabel(f"检测路径: {self.env_manager.python_path}")
+        self.lbl_env_status.setStyleSheet("color: #7f8c8d; font-size: 12px; margin-left: 2px;")
+        l_env.addWidget(self.lbl_env_status)
+        grp_env.setLayout(l_env)
+        main_layout.addWidget(grp_env)
+
+        # 3. 资源设置 (合并输出与图标)
+        grp_res = QGroupBox("资源与输出")
+        l_res = QVBoxLayout()
+        l_res.setSpacing(12)
         
-        self.var_upx = tk.BooleanVar(value=True)
-        ttk.Checkbutton(f5, text="开启 UPX 压缩 (减小体积)", variable=self.var_upx).pack(side="left", padx=10)
+        # 输出行
+        h_out = QHBoxLayout()
+        self.txt_out = QLineEdit()
+        self.txt_out.setPlaceholderText("输出目录 (默认 dist_output)")
+        btn_out = QPushButton("选择目录")
+        btn_out.setFixedWidth(80)
+        btn_out.clicked.connect(self.select_out)
+        h_out.addWidget(QLabel("输出位置:"))
+        h_out.addWidget(self.txt_out)
+        h_out.addWidget(btn_out)
+        
+        # 图标行
+        h_icon = QHBoxLayout()
+        self.txt_icon = QLineEdit()
+        self.txt_icon.setPlaceholderText("应用图标 (可选)")
+        btn_make = QPushButton("制作")
+        btn_make.setFixedWidth(60)
+        btn_make.clicked.connect(self.open_icon_maker)
+        btn_sel = QPushButton("选择")
+        btn_sel.setFixedWidth(60)
+        btn_sel.clicked.connect(self.select_icon)
+        
+        h_icon.addWidget(QLabel("应用图标:"))
+        h_icon.addWidget(self.txt_icon)
+        h_icon.addWidget(btn_make)
+        h_icon.addWidget(btn_sel)
+        
+        l_res.addLayout(h_out)
+        l_res.addLayout(h_icon)
+        grp_res.setLayout(l_res)
+        main_layout.addWidget(grp_res)
 
-        # 6. 运行
-        f6 = ttk.Frame(self.root)
-        f6.pack(fill="x", padx=10, pady=10)
-        self.btn_run = ttk.Button(f6, text="开始打包", command=self.start_thread)
-        self.btn_run.pack(fill="x", ipady=8)
+        # 4. 引擎选项
+        grp_tool = QGroupBox("构建选项")
+        l_tool = QHBoxLayout()
+        
+        v_engine = QVBoxLayout()
+        self.rb_nuitka = QRadioButton("Nuitka 编译器")
+        self.rb_nuitka.setChecked(True)
+        self.rb_pyinstaller = QRadioButton("PyInstaller 打包器")
+        v_engine.addWidget(self.rb_nuitka)
+        v_engine.addWidget(self.rb_pyinstaller)
+        
+        v_opts = QVBoxLayout()
+        self.chk_noconsole = QCheckBox("隐藏控制台 (No Console)")
+        self.chk_noconsole.setChecked(True)
+        self.chk_upx = QCheckBox("UPX 压缩 (需 tools 支持)")
+        self.chk_upx.setChecked(True)
+        v_opts.addWidget(self.chk_noconsole)
+        v_opts.addWidget(self.chk_upx)
+        
+        l_tool.addLayout(v_engine)
+        l_tool.addStretch()
+        l_tool.addLayout(v_opts)
+        l_tool.addStretch()
+        grp_tool.setLayout(l_tool)
+        main_layout.addWidget(grp_tool)
 
-        # 7. 日志
-        self.log_txt = scrolledtext.ScrolledText(self.root, height=10)
-        self.log_txt.pack(fill="both", expand=True, padx=10, pady=5)
+        # 5. 操作区
+        h_action = QHBoxLayout()
+        h_action.setSpacing(20)
+        
+        self.lbl_timer = QLabel("00:00")
+        self.lbl_timer.setObjectName("TimerLabel")
+        self.lbl_timer.setVisible(False)
+        
+        self.btn_run = QPushButton("立即打包")
+        self.btn_run.setObjectName("PrimaryBtn") # 样式 ID
+        self.btn_run.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_run.setFixedHeight(48)
+        self.btn_run.setMinimumWidth(180)
+        self.btn_run.clicked.connect(self.start_process)
+        
+        # 给开始按钮加阴影
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(15)
+        shadow.setColor(QColor(41, 128, 185, 80)) # 蓝色阴影
+        shadow.setOffset(0, 4)
+        self.btn_run.setGraphicsEffect(shadow)
+        
+        h_action.addStretch()
+        h_action.addWidget(self.lbl_timer)
+        h_action.addWidget(self.btn_run)
+        main_layout.addLayout(h_action)
 
-    def log(self, msg):
-        self.log_txt.insert(tk.END, msg)
-        self.log_txt.see(tk.END)
+        # 6. 日志
+        self.txt_log = QTextEdit()
+        self.txt_log.setReadOnly(True)
+        self.txt_log.setPlaceholderText("Ready...")
+        main_layout.addWidget(self.txt_log)
 
+    # --- 逻辑 ---
     def select_file(self):
-        p = filedialog.askopenfilename(filetypes=[("Python", "*.py")])
-        if p:
-            self.target_file = p
-            self.lbl_file.config(text=p)
-            if not self.var_out.get():
-                self.var_out.set(os.path.join(os.path.dirname(p), "dist_output"))
-            if self.var_env_mode.get() == "auto":
-                self.detect_venv(os.path.dirname(p))
+        f, _ = QFileDialog.getOpenFileName(self, "选择文件", "", "Python (*.py)")
+        if f:
+            self.txt_file.setText(f)
+            if not self.txt_out.text():
+                self.txt_out.setText(os.path.join(os.path.dirname(f), "dist_output"))
+            if self.rb_auto.isChecked(): self.detect_env()
 
     def select_out(self):
-        p = filedialog.askdirectory()
-        if p: self.var_out.set(p)
+        d = QFileDialog.getExistingDirectory(self, "选择目录")
+        if d: self.txt_out.setText(d)
 
     def select_icon(self):
-        p = filedialog.askopenfilename(filetypes=[("Icon", "*.ico")])
-        if p: self.var_icon.set(p)
+        f, _ = QFileDialog.getOpenFileName(self, "选择图标", "", "Icon (*.ico)")
+        if f: self.txt_icon.setText(f)
 
     def open_icon_maker(self):
         if not HAS_PILLOW:
-            messagebox.showerror("错误", "需安装 Pillow")
+            QMessageBox.warning(self, "提示", "请先安装 Pillow")
             return
-        out_dir = self.var_out.get()
-        if not out_dir: 
-            out_dir = os.path.dirname(os.path.abspath(__file__))
-        IconGeneratorDialog(self.root, self.on_icon_made, default_save_dir=out_dir)
+        out_dir = self.txt_out.text()
+        if not out_dir: out_dir = os.getcwd()
+        IconGeneratorDialog(self, self.on_icon_created, default_save_dir=out_dir).exec()
 
-    def on_icon_made(self, path):
-        self.var_icon.set(path)
-        self.log(f"图标已生成并选中: {path}\n")
+    def on_icon_created(self, path):
+        self.txt_icon.setText(path)
+        self.log(f"图标已就绪: {path}")
 
-    def detect_env_trigger(self):
-        if self.target_file: self.detect_venv(os.path.dirname(self.target_file))
-        else: self.detect_venv(os.getcwd())
-
-    def detect_venv(self, base):
+    def detect_env(self):
+        if not self.rb_auto.isChecked(): return
+        base = os.path.dirname(self.txt_file.text()) if self.txt_file.text() else os.getcwd()
         found = False
         for d in ["venv", ".venv", "env"]:
             p = os.path.join(base, d)
@@ -555,71 +720,106 @@ class PackerApp:
                 exe = os.path.join(p, "Scripts", "python.exe") if os.name == 'nt' else os.path.join(p, "bin", "python")
                 if os.path.exists(exe):
                     self.env_manager.set_python_path(exe)
-                    self.lbl_env.config(text=f"自动检测: {exe}")
+                    self.lbl_env_status.setText(f"自动检测: {exe}")
                     found = True
                     break
         if not found:
             self.env_manager.set_python_path(sys.executable)
-            self.lbl_env.config(text=f"使用全局: {sys.executable}")
+            self.lbl_env_status.setText(f"全局环境: {sys.executable}")
 
     def manual_env(self):
-        p = filedialog.askopenfilename(title="python.exe", filetypes=[("Exe", "*.exe")])
-        if p:
-            self.env_manager.set_python_path(p)
-            self.lbl_env.config(text=f"手动: {p}")
-
-    def start_thread(self):
-        if not self.target_file: return messagebox.showerror("错误", "请选文件")
-        if not self.var_out.get(): return messagebox.showerror("错误", "请选输出目录")
-        self.btn_run.config(state="disabled")
-        self.log_txt.delete(1.0, tk.END)
-        threading.Thread(target=self.run, daemon=True).start()
-
-    def run(self):
-        out = self.var_out.get()
-        ico = self.var_icon.get()
-        nocon = self.var_noconsole.get()
-        use_upx = self.var_upx.get()
-        
-        tool = PyInstallerTool(self.env_manager) if self.var_tool.get() == "pyinstaller" else NuitkaTool(self.env_manager)
-        
-        self.log(f"=== {tool.name} 开始 ===\n")
-        
-        if not tool.check_installed():
-            self.log(f"正在安装 {tool.name}...\n")
-            if not self.env_manager.run_pip_install(tool.module_name, self.log):
-                self.btn_run.config(state="normal")
-                return
-
-        if isinstance(tool, NuitkaTool):
-            # 获取构建信息，包含UPX路径
-            cmd, env, found_cc, mingw, upx_path = tool.get_build_info(self.target_file, out, nocon, ico, use_upx)
-            
-            if not found_cc: 
-                self.log("提示：未找到本地 MinGW，Nuitka 将尝试下载。\n")
-            if use_upx:
-                if upx_path:
-                    self.log(f"已启用 UPX 压缩，使用本地路径: {upx_path}\n")
-                else:
-                    self.log("警告：勾选了 UPX 但未在 tools 目录中找到 upx.exe，Nuitka 将尝试自动寻找或忽略。\n")
+        if not self.rb_manual.isChecked(): return
+        f, _ = QFileDialog.getOpenFileName(self, "选择 python.exe", "", "Executable (*.exe)")
+        if f:
+            self.env_manager.set_python_path(f)
+            self.lbl_env_status.setText(f"手动指定: {f}")
         else:
-            # PyInstaller
-            cmd, env = tool.get_build_info(self.target_file, out, nocon, ico, use_upx)
-            if use_upx and "--upx-dir" not in cmd:
-                 self.log("警告：勾选了 UPX 但未在 tools 目录中找到 upx.exe，PyInstaller 可能无法压缩。\n")
-            elif use_upx:
-                 self.log("已启用 UPX 压缩 (PyInstaller)\n")
+            self.rb_auto.setChecked(True)
 
-        self.log(f"命令: {' '.join(cmd)}\n\n")
-        if run_command(cmd, self.log, env):
-            self.log("\n>>> 成功! <<<\n")
-            try: os.startfile(out)
+    def update_timer(self):
+        if self.is_running:
+            elapsed = int(time.time() - self.start_time)
+            mins, secs = divmod(elapsed, 60)
+            self.lbl_timer.setText(f"{mins:02d}:{secs:02d}")
+
+    def log(self, msg):
+        self.txt_log.append(msg.strip())
+        self.txt_log.verticalScrollBar().setValue(self.txt_log.verticalScrollBar().maximum())
+
+    def start_process(self):
+        target = self.txt_file.text()
+        out = self.txt_out.text()
+        if not target: return QMessageBox.warning(self, "提示", "请选择 .py 文件")
+        if not out: return QMessageBox.warning(self, "提示", "请选择输出目录")
+        
+        self.btn_run.setEnabled(False)
+        self.btn_run.setText("正在构建...")
+        self.txt_log.clear()
+        
+        self.start_time = time.time()
+        self.is_running = True
+        self.lbl_timer.setVisible(True)
+        self.lbl_timer.setText("00:00")
+        self.timer.start(1000)
+
+        threading.Thread(target=self.run_logic, daemon=True).start()
+
+    # 信号桥接
+    worker_signals = WorkerSignals()
+    def signal_log(self, text):
+        QTimer.singleShot(0, lambda: self.append_log_slot(text))
+    def append_log_slot(self, text):
+        self.log(text)
+    def process_finished_slot(self, success):
+        self.timer.stop()
+        self.is_running = False
+        self.btn_run.setEnabled(True)
+        self.btn_run.setText("立即打包")
+        
+        if success:
+            self.log("\n>>> 构建成功 <<<")
+            QMessageBox.information(self, "完成", "打包成功！")
+            try: os.startfile(self.txt_out.text())
             except: pass
         else:
-            self.log("\n>>> 失败 <<<\n")
-        self.btn_run.config(state="normal")
+            self.log("\n>>> 构建失败 <<<")
+            QMessageBox.critical(self, "错误", "打包失败，请查看日志")
+
+    def run_logic(self):
+        try:
+            target = self.txt_file.text()
+            out = self.txt_out.text()
+            icon = self.txt_icon.text()
+            nocon = self.chk_noconsole.isChecked()
+            upx = self.chk_upx.isChecked()
+            
+            tool = PyInstallerTool(self.env_manager) if self.rb_pyinstaller.isChecked() else NuitkaTool(self.env_manager)
+            
+            if not tool.check_installed():
+                self.signal_log(f"安装依赖 {tool.name}...")
+                self.env_manager.install_package(tool.module_name, self.worker_signals.log)
+
+            cmd, env, _ = tool.get_build_info(target, out, nocon, icon, upx)
+            self.signal_log(f"执行引擎: {tool.name}\n")
+            
+            runner = ToolRunner(cmd, env)
+            runner.signals.log.connect(self.append_log_slot)
+            runner.signals.finished.connect(self.process_finished_slot)
+            runner.run()
+        except Exception as e:
+            self.signal_log(f"Error: {e}")
+            self.process_finished_slot(False)
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = PackerApp(root)
-    root.mainloop()
+    app = QApplication(sys.argv)
+    app.setStyleSheet(STYLESHEET)
+    
+    # 启用高分屏支持
+    if hasattr(Qt.ApplicationAttribute, 'AA_EnableHighDpiScaling'):
+        app.setAttribute(Qt.ApplicationAttribute.AA_EnableHighDpiScaling, True)
+    if hasattr(Qt.ApplicationAttribute, 'AA_UseHighDpiPixmaps'):
+        app.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
+
+    w = PackerWindow()
+    w.show()
+    sys.exit(app.exec())
