@@ -7,8 +7,8 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                              QLabel, QLineEdit, QPushButton, QRadioButton, 
                              QCheckBox, QTextEdit, QFileDialog, QComboBox, QSlider, 
                              QMessageBox, QDialog, QFrame, QButtonGroup, QGraphicsDropShadowEffect)
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject, pyqtProperty, QPropertyAnimation
-from PyQt6.QtGui import QPixmap, QImage, QColor, QFont, QCursor, QIcon
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject, pyqtProperty, QPropertyAnimation, QRect, QPoint
+from PyQt6.QtGui import QPixmap, QImage, QColor, QFont, QCursor, QIcon, QPainter, QBrush, QPen, QPolygon
 
 # ===========================
 # 依赖库检查
@@ -103,6 +103,45 @@ STYLESHEET = """
         color: #303133;
         border-bottom: 2px solid #4a90e2; /* 与PrimaryBtn主色调保持一致 */
         font-weight: bold;
+    }
+
+    /* 分段控制器 (Segmented Control) */
+    QFrame#SegmentedControlFrame {
+        border: 1px solid #dcdcdc; /* 整体边框 */
+        border-radius: 8px; /* 整体圆角 */
+        background-color: #f8f8f8; /* 整体背景 */
+        padding: 0px; /* 内部无填充 */
+    }
+
+    QRadioButton#SegmentedControlBtn {
+        background-color: transparent; /* 默认透明背景 */
+        border: none; /* 移除默认边框 */
+        padding: 8px 20px;
+        color: #555;
+        font-weight: 500;
+        min-width: 100px; /* 最小宽度 */
+    }
+    QRadioButton#SegmentedControlBtn::indicator {
+        width: 0;
+        height: 0;
+    }
+    QRadioButton#SegmentedControlBtn:hover {
+        color: #3a80d2;
+    }
+    QRadioButton#SegmentedControlBtn:checked {
+        background-color: #4a90e2; /* 选中背景色 */
+        color: white; /* 选中字体颜色 */
+        border-radius: 7px; /* 内部圆角，比Frame小1px */
+        font-weight: bold;
+    }
+    /* 针对分段控制器中的第一个和最后一个按钮的特殊处理 */
+    QRadioButton#SegmentedControlBtn:first-of-type {
+        border-top-left-radius: 7px;
+        border-bottom-left-radius: 7px;
+    }
+    QRadioButton#SegmentedControlBtn:last-of-type {
+        border-top-right-radius: 7px;
+        border-bottom-right-radius: 7px;
     }
 
     /* 立即打包大按钮 */
@@ -433,7 +472,7 @@ class IconDialog(QDialog):
         self.lbl_prev.setStyleSheet("background: #ffffff; border-radius: 8px; border: 1px solid #e8e8e8; color: #999; font-size: 13px;")
         layout.addWidget(self.lbl_prev, 5)
         ctrl = QVBoxLayout()
-        btn_open = QPushButton("📂 打开图片"); btn_open.clicked.connect(self.load); btn_open.setObjectName("GhostBtn")
+        btn_open = QPushButton("打开图片"); btn_open.clicked.connect(self.load); btn_open.setObjectName("GhostBtn")
         ctrl.addWidget(btn_open)
         ctrl.addWidget(QLabel("形状:"))
         self.cmb = QComboBox(objectName="IconShapeComboBox"); self.cmb.addItems(["圆角", "方", "圆", "心"]); self.cmb.currentIndexChanged.connect(self.refresh)
@@ -453,11 +492,63 @@ class IconDialog(QDialog):
     def refresh(self):
         if not self.img_path: return
         map_s = ["rounded", "square", "circle", "heart"]
-        self.cur = IconProcessor.create_shaped_icon(self.img_path, map_s[self.cmb.currentIndex()], 256, self.zoom)
+        current_shape_str = map_s[self.cmb.currentIndex()]
+        self.cur = IconProcessor.create_shaped_icon(self.img_path, current_shape_str, 256, self.zoom)
+
         if self.cur:
-            d = self.cur.convert("RGBA").tobytes("raw", "RGBA")
-            q = QImage(d, self.cur.size[0], self.cur.size[1], QImage.Format.Format_RGBA8888)
-            self.lbl_prev.setPixmap(QPixmap.fromImage(q).scaled(200, 200, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+            # 1. 将PIL Image转换为QImage
+            qimage = QImage(self.cur.convert("RGBA").tobytes("raw", "RGBA"),
+                            self.cur.size[0], self.cur.size[1],
+                            QImage.Format.Format_RGBA8888)
+            
+            # 2. 从QImage创建QPixmap (原始大小 256x256)
+            original_pixmap = QPixmap.fromImage(qimage)
+            
+            # 3. 在original_pixmap上绘制形状轮廓
+            painter = QPainter(original_pixmap)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            
+            # 添加一个通用的虚线边框作为“小框”
+            painter.setPen(QPen(QColor(100, 100, 100, 150), 2, Qt.PenStyle.DashLine))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRect(0, 0, 256, 256) # 绘制一个围绕整个 256x256 画布的矩形
+
+            # 设置画笔：半透明蓝色实线边框 (用于特定形状轮廓)
+            painter.setPen(QPen(QColor(74, 144, 226, 200), 4, Qt.PenStyle.SolidLine))
+            painter.setBrush(Qt.BrushStyle.NoBrush) # 无填充
+            
+            # 定义绘制区域（相对于256x256的pixmap）
+            rect = QRect(0, 0, 256, 256)
+            
+            if current_shape_str == 'square':
+                painter.drawRect(rect)
+            elif current_shape_str == 'circle':
+                painter.drawEllipse(rect)
+            elif current_shape_str == 'rounded':
+                radius = int(256 * 0.18)
+                painter.drawRoundedRect(rect, radius, radius)
+            elif current_shape_str == 'heart':
+                scale_heart = 0.9
+                offset_x = 256 * (1 - scale_heart) / 2
+                offset_y = 256 * (1 - scale_heart) / 2
+                s = 256 * scale_heart
+
+                points = [
+                    (256/2, s*0.95+offset_y),
+                    (s*0.05+offset_x, s*0.4+offset_y),
+                    (s*0.25+offset_x, s*0.1+offset_y),
+                    (256/2, s*0.3+offset_y),
+                    (s*0.75+offset_x, s*0.1+offset_y),
+                    (s*0.95+offset_x, s*0.4+offset_y)
+                ]
+                
+                q_points = [QPoint(int(p[0]), int(p[1])) for p in points]
+                painter.drawPolygon(QPolygon(q_points))
+            
+            painter.end() # 结束绘制
+            
+            # 4. 缩放并设置给lbl_prev
+            self.lbl_prev.setPixmap(original_pixmap.scaled(200, 200, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
             self.lbl_prev.setText("")
     def apply(self):
         if hasattr(self, 'cur'):
@@ -487,7 +578,7 @@ class MainWindow(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
-        layout.setContentsMargins(20, 20, 20, 0)
+        layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(12)
 
         # 1. 入口文件
@@ -510,21 +601,43 @@ class MainWindow(QMainWindow):
         l_env.setContentsMargins(10, 10, 10, 10)
         l_env.addWidget(QLabel("编译环境", objectName="CardTitle"))
         
-        h_tab = QHBoxLayout()
-        h_tab.setSpacing(0)
-        self.rb_auto = QRadioButton("自动检测", objectName="TabBtn"); self.rb_auto.setChecked(True); self.rb_auto.toggled.connect(self.detect_env)
-        self.rb_man = QRadioButton("手动指定", objectName="TabBtn"); self.rb_man.toggled.connect(self.man_env)
-        h_tab.addWidget(self.rb_auto); h_tab.addWidget(self.rb_man); h_tab.addStretch()
-        l_env.addLayout(h_tab)
+        # 分段控制器布局
+        self.bg_env_selection = QButtonGroup(self) # 创建一个QButtonGroup来管理单选按钮
+        
+        segmented_frame = QFrame(objectName="SegmentedControlFrame")
+        segmented_layout = QHBoxLayout(segmented_frame)
+        segmented_layout.setContentsMargins(1, 1, 1, 1) # 调整内边距以适应边框
+        segmented_layout.setSpacing(0) # 确保按钮之间没有间距
 
+        self.rb_auto = QRadioButton("自动检测", objectName="SegmentedControlBtn")
+        self.rb_auto.setChecked(True)
+        self.rb_auto.toggled.connect(self.detect_env)
+        self.bg_env_selection.addButton(self.rb_auto)
+
+        self.rb_man = QRadioButton("手动指定", objectName="SegmentedControlBtn")
+        self.rb_man.toggled.connect(self.man_env)
+        self.bg_env_selection.addButton(self.rb_man)
+
+        segmented_layout.addWidget(self.rb_auto, 1) # 设置拉伸系数为1
+        segmented_layout.addWidget(self.rb_man, 1) # 设置拉伸系数为1
+        # 移除 segmented_layout.addStretch() 因为按钮会均匀填充可用空间
+
+        l_env.addWidget(segmented_frame) # 将分段控制器框架添加到环境卡片布局中
+
+        # 路径显示框
         bg_path = QFrame()
         bg_path.setStyleSheet("background: #f8f9fa; border-radius: 6px; padding: 8px;")
-        l_path = QHBoxLayout(bg_path); l_path.setContentsMargins(5, 0, 5, 0)
-        self.lbl_env = QLabel(f"{self.env_mgr.python_path}"); self.lbl_env.setStyleSheet("color: #606266; font-family: Consolas; font-size: 12px;")
-        l_path.addWidget(QLabel("🐍")); l_path.addWidget(self.lbl_env); l_path.addStretch()
-        self.lbl_check = QLabel("✔"); self.lbl_check.setStyleSheet("color: #67c23a; font-weight: bold;")
-        l_path.addWidget(self.lbl_check)
-        l_env.addWidget(bg_path)
+        
+        l_path = QHBoxLayout(bg_path)
+        l_path.setContentsMargins(5, 0, 5, 0) # 保持与原设计一致的内边距
+
+        self.lbl_env = QLabel(f"{self.env_mgr.python_path}")
+        self.lbl_env.setStyleSheet("color: #606266; font-family: Consolas; font-size: 12px;")
+        
+        l_path.addWidget(self.lbl_env)
+        l_path.addStretch()
+
+        l_env.addWidget(bg_path) # 添加路径框到环境卡片布局中 (确保只添加一次)
         layout.addWidget(card_env)
 
         # 3. 资源
@@ -556,20 +669,34 @@ class MainWindow(QMainWindow):
         h_opt_main = QHBoxLayout()
         v_compiler = QVBoxLayout()
         self.bg_comp = QButtonGroup()
-        self.rb_nuitka = QRadioButton("Nuitka 编译器\n(高性能，推荐)", objectName="CompilerBtn"); self.rb_nuitka.setChecked(True)
-        self.rb_pyi = QRadioButton("PyInstaller 打包器\n(兼容性好)", objectName="CompilerBtn")
+        self.rb_nuitka = QRadioButton("Nuitka 编译器", objectName="CompilerBtn"); self.rb_nuitka.setChecked(True)
+        self.rb_pyi = QRadioButton("PyInstaller 打包器", objectName="CompilerBtn")
         self.bg_comp.addButton(self.rb_nuitka); self.bg_comp.addButton(self.rb_pyi)
-        v_compiler.addWidget(self.rb_nuitka); v_compiler.addWidget(self.rb_pyi)
-        v_switches = QVBoxLayout()
-        v_switches.setContentsMargins(20, 0, 0, 0)
-        self.chk_nocon = ToggleSwitch(self, w=38, h=22); self.chk_nocon.set_on(True) # 替换为 ToggleSwitch，调整尺寸
-        self.chk_upx = ToggleSwitch(self, w=38, h=22); self.chk_upx.set_on(True) # 替换为 ToggleSwitch，调整尺寸
-        self.lbl_nocon = QLabel("隐藏控制台 (No Console)") # 添加标签
-        self.lbl_upx = QLabel("UPX 压缩 (需 tools 支持)") # 添加标签
-        h_nocon = QHBoxLayout(); h_nocon.addWidget(self.chk_nocon); h_nocon.addWidget(self.lbl_nocon); h_nocon.addStretch()
-        h_upx = QHBoxLayout(); h_upx.addWidget(self.chk_upx); h_upx.addWidget(self.lbl_upx); h_upx.addStretch()
-        v_switches.addStretch(); v_switches.addLayout(h_nocon); v_switches.addSpacing(6); v_switches.addLayout(h_upx); v_switches.addStretch()
-        h_opt_main.addLayout(v_compiler, 4); h_opt_main.addLayout(v_switches, 6)
+
+        # 左侧布局: PyInstaller 和 隐藏控制台
+        v_left_column = QVBoxLayout()
+        v_left_column.addWidget(self.rb_pyi)
+        
+        h_nocon = QHBoxLayout()
+        self.chk_nocon = ToggleSwitch(self, w=38, h=22); self.chk_nocon.set_on(True)
+        self.lbl_nocon = QLabel("隐藏控制台")
+        h_nocon.addWidget(self.chk_nocon); h_nocon.addWidget(self.lbl_nocon); h_nocon.addStretch()
+        v_left_column.addLayout(h_nocon)
+        v_left_column.addStretch() # 确保左侧内容向上对齐
+
+        # 右侧布局: Nuitka 和 UPX 压缩
+        v_right_column = QVBoxLayout()
+        v_right_column.addWidget(self.rb_nuitka)
+
+        h_upx = QHBoxLayout()
+        self.chk_upx = ToggleSwitch(self, w=38, h=22); self.chk_upx.set_on(True)
+        self.lbl_upx = QLabel("UPX 压缩")
+        h_upx.addWidget(self.chk_upx); h_upx.addWidget(self.lbl_upx); h_upx.addStretch()
+        v_right_column.addLayout(h_upx)
+        v_right_column.addStretch() # 确保右侧内容向上对齐
+
+        h_opt_main.addLayout(v_left_column)
+        h_opt_main.addLayout(v_right_column)
         l_opt.addLayout(h_opt_main)
         layout.addWidget(card_opt)
 
