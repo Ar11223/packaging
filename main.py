@@ -553,6 +553,7 @@ class IconDialog(QDialog):
     def apply(self):
         if hasattr(self, 'cur'):
             d = self.default_dir or os.getcwd(); p = os.path.join(d, "icon.ico")
+            os.makedirs(os.path.dirname(p), exist_ok=True) # 确保输出目录存在
             self.cur.save(p, format='ICO', sizes=[(256,256),(128,128),(48,48),(16,16)])
             self.callback(p); self.accept()
 
