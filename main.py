@@ -1,10 +1,19 @@
 import sys
 import os
 # 获取真实的 EXE 所在目录，而不是临时解压目录
+# --- 修改开始: 适配 PyInstaller 单文件全打包模式 ---
 if getattr(sys, 'frozen', False):
-    BASE_DIR = os.path.dirname(sys.executable)
+    # 判断是否是 PyInstaller 的单文件解压模式
+    if hasattr(sys, '_MEIPASS'):
+        # 如果是单文件模式，资源会被解压到临时目录 sys._MEIPASS 中
+        BASE_DIR = sys._MEIPASS
+    else:
+        # 如果是 Nuitka 或 PyInstaller 的文件夹模式
+        BASE_DIR = os.path.dirname(sys.executable)
 else:
+    # 源码运行模式
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# --- 修改结束 ---
 import subprocess
 import threading
 import time
@@ -12,7 +21,8 @@ import ast # 导入 ast 模块
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QLabel, QLineEdit, QPushButton, QRadioButton, 
                              QCheckBox, QTextEdit, QFileDialog, QComboBox, QSlider, 
-                             QMessageBox, QDialog, QFrame, QButtonGroup, QGraphicsDropShadowEffect)
+                             QMessageBox, QDialog, QFrame, QButtonGroup, QGraphicsDropShadowEffect,
+                             QListWidget, QListWidgetItem)
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject, pyqtProperty, QPropertyAnimation, QRect, QPoint
 from PyQt6.QtGui import QPixmap, QImage, QColor, QFont, QCursor, QIcon, QPainter, QBrush, QPen, QPolygon
 
@@ -181,7 +191,7 @@ STYLESHEET = """
         background-color: #333333; /* 稍亮的深色背景，与整体更协调 */
         color: #e0e0e0;
         border: none;
-        border-radius: 0;
+        border-radius: 8px;
         font-family: Consolas, "Courier New", monospace;
         font-size: 12px;
         padding: 12px;
@@ -268,16 +278,55 @@ class IconProcessor:
             return output
         except: return None
 
+def _get_silent_startupinfo():
+    if sys.platform == "win32":
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        return si
+    return None
+
+
 class EnvManager:
     def __init__(self): self.python_path = sys.executable
-    def set_python_path(self, path): 
+    def set_python_path(self, path):
         if os.path.exists(path): self.python_path = path; return True
         return False
+
+    def get_python_version(self):
+        try:
+            result = subprocess.run([self.python_path, "--version"], capture_output=True, text=True, check=True, startupinfo=_get_silent_startupinfo())
+            return result.stdout.strip()
+        except Exception:
+            return "未知版本"
+
     def install_package(self, pkg, signal):
-        cmd = [self.python_path, "-m", "pip", "install", pkg]
+        # 导入名到 pip 包名的映射
+        package_map = {
+            "PIL": "Pillow",
+            "cv2": "opencv-python",
+            "yaml": "PyYAML",
+            "nuitka": "nuitka",
+            "PyInstaller": "PyInstaller",
+            "PyQt6": "PyQt6", # 虽然PyQt6是标准库，但用户可能希望显式安装
+        }
+        pip_pkg_name = package_map.get(pkg, pkg)
+
+        cmd = [self.python_path, "-m", "pip", "install", pip_pkg_name]
         signal.emit(f"安装依赖: {' '.join(cmd)}\n")
-        try: subprocess.check_call(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); return True
-        except Exception as e: signal.emit(f"安装依赖 {pkg} 失败: {e}\n"); return False
+        try:
+            # 捕获 pip 的标准输出和标准错误，并将其发送到日志信号
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, universal_newlines=True, startupinfo=_get_silent_startupinfo())
+            for line in process.stdout:
+                signal.emit(line) # 实时输出 pip 的日志
+            process.wait()
+            if process.returncode == 0:
+                return True
+            else:
+                signal.emit(f"安装依赖 {pkg} 失败，退出码: {process.returncode}\n")
+                return False
+        except Exception as e:
+            signal.emit(f"安装依赖 {pkg} 时发生异常: {e}\n")
+            return False
 
     def check_package_installed(self, pkg, signal):
         try:
@@ -288,16 +337,21 @@ class EnvManager:
 
     def parse_dependencies(self, script_path, signal):
         dependencies = set()
+        standard_libs = set(sys.builtin_module_names + ('os', 'sys', 'threading', 'time', 'subprocess', 'ast', 'PyQt6')) # 增加PyQt6到标准库
         try:
             with open(script_path, "r", encoding="utf-8") as f:
                 tree = ast.parse(f.read(), filename=script_path)
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
                     for alias in node.names:
-                        dependencies.add(alias.name.split('.')[0])
+                        module_name = alias.name.split('.')[0]
+                        if module_name not in standard_libs:
+                            dependencies.add(module_name)
                 elif isinstance(node, ast.ImportFrom):
                     if node.module:
-                        dependencies.add(node.module.split('.')[0])
+                        module_name = node.module.split('.')[0]
+                        if module_name not in standard_libs:
+                            dependencies.add(module_name)
         except Exception as e:
             signal.emit(f"解析依赖时发生错误: {e}\n")
         return sorted(list(dependencies))
@@ -353,12 +407,14 @@ class NuitkaTool(BaseTool):
             "--onefile", 
             
             # --- 修复核心: 启用 PyQt6 插件 ---
-            "--enable-plugin=pyqt6", 
-            "--include-qt-plugins=sensible,styles,platforms", 
+            "--enable-plugin=pyqt6",
+            "--include-qt-plugins=sensible,styles,platforms",
+            "--include-package=PyQt6",
+            "--enable-plugin=tk-inter",
             
-            "--assume-yes-for-downloads", 
-            "--remove-output", 
-            f"--output-dir={out}", 
+            "--assume-yes-for-downloads",
+            "--remove-output",
+            f"--output-dir={out}",
             target
         ]
 
@@ -391,8 +447,11 @@ class ToolRunner(QObject):
     def __init__(self, cmd, env): super().__init__(); self.cmd = cmd; self.env = env; self.signals = WorkerSignals()
     def run(self):
         try:
-            si = subprocess.STARTUPINFO(); si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            p = subprocess.Popen(self.cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, universal_newlines=True, startupinfo=si, env=self.env)
+            startupinfo = None
+            if sys.platform == "win32":
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            p = subprocess.Popen(self.cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, universal_newlines=True, startupinfo=startupinfo, env=self.env)
             for l in p.stdout: self.signals.log.emit(l)
             p.wait()
             self.signals.finished.emit(p.returncode == 0)
@@ -410,6 +469,8 @@ class Card(QFrame):
         self.setGraphicsEffect(shadow)
 
 class ToggleSwitch(QWidget):
+    toggled = pyqtSignal(bool)
+
     def __init__(self, parent=None, w=50, h=28):
         super().__init__(parent)
         self._w, self._h = w, h
@@ -419,6 +480,7 @@ class ToggleSwitch(QWidget):
         self._margin = 2                       # 滑块与背景边缘间距
         self._thumb_radius = (h - 2 * self._margin) // 2
         self._track_radius = h // 2
+        self._thumb_x = self._margin # 初始化 _thumb_x 属性
 
         # 颜色可自定义
         self._track_off_color = "#c5c5c5"
@@ -483,7 +545,6 @@ class ToggleSwitch(QWidget):
         self.toggled.emit(on)
 
     # -------------- 信号 --------------
-    toggled = pyqtSignal(bool)
 
 
 # ===========================
@@ -544,7 +605,7 @@ class IconDialog(QDialog):
 
             # 设置画笔：半透明蓝色实线边框 (用于特定形状轮廓)
             painter.setPen(QPen(QColor(74, 144, 226, 200), 4, Qt.PenStyle.SolidLine))
-            painter.setBrush(Qt.BrushStyle.NoBrush) # 无填充
+            painter.setBrush(Qt.BrushStyle.NoBrush)
             
             # 定义绘制区域（相对于256x256的pixmap）
             rect = QRect(0, 0, 256, 256)
@@ -587,6 +648,106 @@ class IconDialog(QDialog):
             self.callback(p); self.accept()
 
 # ===========================
+# 依赖选择弹窗
+# ===========================
+class DependencySelectionDialog(QDialog):
+    def __init__(self, parent, missing_dependencies):
+        super().__init__(parent)
+        self.setWindowTitle("选择要安装的依赖")
+        self.setFixedSize(400, 450)
+        self.setModal(True) # 设置为模态对话框
+
+        self.selected_dependencies = []
+
+        layout = QVBoxLayout(self)
+
+        # 提示信息
+        info_label = QLabel("检测到以下缺失依赖，请选择要安装的项：")
+        layout.addWidget(info_label)
+
+        # 依赖列表
+        self.list_widget = QListWidget()
+        self.list_widget.setStyleSheet(
+            """
+            QListWidget {
+                border: 1px solid #e0e0e0;
+                border-radius: 6px;
+                padding: 5px;
+                background-color: #ffffff;
+            }
+            QListWidget::item {
+                padding: 5px;
+            }
+            QCheckBox {
+                spacing: 5px;
+            }
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+                border-radius: 3px;
+                border: 1px solid #c0c0c0;
+                background-color: #ffffff;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #4a90e2;
+                border: 1px solid #4a90e2;
+            }
+            QCheckBox::indicator:hover {
+                border-color: #4a90e2;
+            }
+            """
+        )
+        for dep in missing_dependencies:
+            item = QListWidgetItem(self.list_widget)
+            checkbox = QCheckBox(dep)
+            checkbox.setChecked(True) # 默认全选
+            self.list_widget.addItem(item)
+            self.list_widget.setItemWidget(item, checkbox)
+        layout.addWidget(self.list_widget)
+
+        # 按钮布局
+        btn_layout = QHBoxLayout()
+        self.select_all_btn = QPushButton("全选")
+        self.select_all_btn.setObjectName("GhostBtn")
+        self.select_all_btn.clicked.connect(lambda: self.set_all_checkboxes(True))
+        btn_layout.addWidget(self.select_all_btn)
+
+        self.deselect_all_btn = QPushButton("全不选")
+        self.deselect_all_btn.setObjectName("GhostBtn")
+        self.deselect_all_btn.clicked.connect(lambda: self.set_all_checkboxes(False))
+        btn_layout.addWidget(self.deselect_all_btn)
+
+        btn_layout.addStretch()
+
+        self.cancel_btn = QPushButton("取消")
+        self.cancel_btn.setObjectName("GhostBtn")
+        self.cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(self.cancel_btn)
+
+        self.install_btn = QPushButton("安装选中依赖")
+        self.install_btn.setObjectName("PrimaryBtn")
+        self.install_btn.clicked.connect(self.accept_selection)
+        btn_layout.addWidget(self.install_btn)
+        
+        layout.addLayout(btn_layout)
+
+    def set_all_checkboxes(self, checked):
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            checkbox = self.list_widget.itemWidget(item)
+            if isinstance(checkbox, QCheckBox):
+                checkbox.setChecked(checked)
+
+    def accept_selection(self):
+        self.selected_dependencies.clear()
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            checkbox = self.list_widget.itemWidget(item)
+            if isinstance(checkbox, QCheckBox) and checkbox.isChecked():
+                self.selected_dependencies.append(checkbox.text())
+        self.accept()
+
+# ===========================
 # 主界面
 # ===========================
 class MainWindow(QMainWindow):
@@ -613,9 +774,30 @@ class MainWindow(QMainWindow):
     def init_ui(self):
         central = QWidget()
         self.setCentralWidget(central)
-        layout = QVBoxLayout(central)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(12)
+        main_h_layout = QHBoxLayout() # 主水平布局
+        main_h_layout.setContentsMargins(20, 20, 20, 20)
+        main_h_layout.setSpacing(12)
+
+        left_v_layout = QVBoxLayout() # 左侧垂直布局
+        left_v_layout.setContentsMargins(0, 0, 0, 0)
+        left_v_layout.setSpacing(12)
+
+        right_v_layout = QVBoxLayout() # 右侧垂直布局
+        right_v_layout.setContentsMargins(0, 0, 0, 0)
+        right_v_layout.setSpacing(12)
+        
+        main_h_layout.addLayout(left_v_layout, 1) # 左侧占据1份空间
+        main_h_layout.addLayout(right_v_layout, 1) # 右侧占据1份空间
+
+        bottom_v_layout = QVBoxLayout() # 底部垂直布局 (用于操作区和日志)
+        bottom_v_layout.setContentsMargins(20, 0, 20, 20) # 调整底部边距
+        bottom_v_layout.setSpacing(12)
+
+        layout = QVBoxLayout(central) # 整体垂直布局
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addLayout(main_h_layout, 1) # 主水平布局占据剩余空间
+        layout.addLayout(bottom_v_layout, 0) # 底部布局固定高度
 
         # 1. 入口文件
         card_file = QFrame(objectName="Card")
@@ -629,7 +811,7 @@ class MainWindow(QMainWindow):
         btn_file = QPushButton("选择文件", objectName="GhostBtn"); btn_file.clicked.connect(self.sel_file)
         h_file.addWidget(self.txt_file); h_file.addWidget(btn_file)
         l_file.addLayout(h_file)
-        layout.addWidget(card_file)
+        left_v_layout.addWidget(card_file)
 
         # 2. 环境
         card_env = QFrame(objectName="Card")
@@ -667,14 +849,15 @@ class MainWindow(QMainWindow):
         l_path = QHBoxLayout(bg_path)
         l_path.setContentsMargins(5, 0, 5, 0) # 保持与原设计一致的内边距
 
-        self.lbl_env = QLabel(f"{self.env_mgr.python_path}")
+        initial_python_version = self.env_mgr.get_python_version()
+        self.lbl_env = QLabel(f"{self.env_mgr.python_path} ({initial_python_version})")
         self.lbl_env.setStyleSheet("color: #606266; font-family: Consolas; font-size: 12px;")
         
         l_path.addWidget(self.lbl_env)
         l_path.addStretch()
 
         l_env.addWidget(bg_path) # 添加路径框到环境卡片布局中 (确保只添加一次)
-        layout.addWidget(card_env)
+        left_v_layout.addWidget(card_env)
 
         # 3. 资源
         card_res = QFrame(objectName="Card")
@@ -694,7 +877,7 @@ class MainWindow(QMainWindow):
         btn_sel = QPushButton("选择", objectName="GhostBtn"); btn_sel.clicked.connect(self.sel_icon)
         h_icon.addWidget(lbl_icon); h_icon.addWidget(self.txt_icon); h_icon.addWidget(btn_make); h_icon.addWidget(btn_sel)
         l_res.addLayout(h_icon)
-        layout.addWidget(card_res)
+        left_v_layout.addWidget(card_res)
 
         # 4. 选项
         card_opt = QFrame(objectName="Card")
@@ -751,27 +934,31 @@ class MainWindow(QMainWindow):
         h_opt_main.addLayout(v_left_column)
         h_opt_main.addLayout(v_right_column)
         l_opt.addLayout(h_opt_main)
-        layout.addWidget(card_opt)
+        right_v_layout.addWidget(card_opt)
 
-        layout.addStretch()
 
-        # 5. 操作区
-        h_action = QHBoxLayout()
+        # 5. 操作区 (已拆分)
+
+        # 计时器单独放在底部布局的顶部
+        h_timer_layout = QHBoxLayout()
+        h_timer_layout.addStretch()
         self.lbl_timer = QLabel("00:00", objectName="Timer"); self.lbl_timer.setVisible(False)
+        h_timer_layout.addWidget(self.lbl_timer)
+        h_timer_layout.addStretch()
+        bottom_v_layout.addLayout(h_timer_layout)
+
+        # 立即打包按钮移动到右侧布局的底部
         self.btn_run = QPushButton("立即打包", objectName="PrimaryBtn")
         self.btn_run.setCursor(Qt.CursorShape.PointingHandCursor)
         shadow = QGraphicsDropShadowEffect(); shadow.setBlurRadius(15); shadow.setColor(QColor(41, 128, 185, 60)); shadow.setOffset(0, 4)
         self.btn_run.setGraphicsEffect(shadow)
         self.btn_run.clicked.connect(self.start)
-        h_action.addWidget(self.lbl_timer)
-        h_action.addStretch()
-        h_action.addWidget(self.btn_run)
-        layout.addLayout(h_action)
+        right_v_layout.addStretch() # 在按钮上方添加一个拉伸器，使其居底
+        right_v_layout.addWidget(self.btn_run)
 
         # 6. 日志
-        self.txt_log = QTextEdit(objectName="LogArea"); self.txt_log.setPlaceholderText("Ready..."); self.txt_log.setFixedHeight(60); self.txt_log.setReadOnly(True)
-        layout.addWidget(self.txt_log)
-        self.sig_log = pyqtSignal(str)
+        self.txt_log = QTextEdit(objectName="LogArea"); self.txt_log.setPlaceholderText("Ready..."); self.txt_log.setFixedHeight(120); self.txt_log.setReadOnly(True)
+        bottom_v_layout.addWidget(self.txt_log)
 
     # 逻辑部分
     def sel_file(self):
@@ -797,12 +984,22 @@ class MainWindow(QMainWindow):
             p = os.path.join(base, d)
             if os.path.exists(p):
                 exe = os.path.join(p, "Scripts", "python.exe") if os.name=='nt' else os.path.join(p, "bin", "python")
-                if os.path.exists(exe): self.env_mgr.set_python_path(exe); self.lbl_env.setText(f"自动检测: {exe}"); found=True; break
-        if not found: self.env_mgr.set_python_path(sys.executable); self.lbl_env.setText(f"系统全局: {sys.executable}")
+                if os.path.exists(exe):
+                    self.env_mgr.set_python_path(exe)
+                    python_version = self.env_mgr.get_python_version()
+                    self.lbl_env.setText(f"自动检测: {exe} ({python_version})")
+                    found=True; break
+        if not found:
+            self.env_mgr.set_python_path(sys.executable)
+            python_version = self.env_mgr.get_python_version()
+            self.lbl_env.setText(f"系统全局: {sys.executable} ({python_version})")
     def man_env(self):
         if not self.rb_man.isChecked(): return
         f, _ = QFileDialog.getOpenFileName(self, "Python Exe", "", "*.exe")
-        if f: self.env_mgr.set_python_path(f); self.lbl_env.setText(f"手动: {f}")
+        if f:
+            self.env_mgr.set_python_path(f)
+            python_version = self.env_mgr.get_python_version()
+            self.lbl_env.setText(f"手动: {f} ({python_version})")
         else: self.rb_auto.setChecked(True)
     def tick(self):
         s = int(time.time() - self.start_ts)
@@ -824,23 +1021,24 @@ class MainWindow(QMainWindow):
                 missing_deps.append(dep)
         
         if missing_deps:
-            msg = f"检测到以下缺失依赖：\n{', '.join(missing_deps)}\n是否立即安装？"
-            reply = QMessageBox.question(self, "依赖检测", msg, 
-                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, 
-                                         QMessageBox.StandardButton.Yes)
-            if reply == QMessageBox.StandardButton.Yes:
-                self.sig_log_bridge.emit("开始安装缺失依赖...\n")
-                success = True
-                for dep in missing_deps:
-                    if not self.env_mgr.install_package(dep, self.sig_log_bridge):
-                        success = False
-                        break
-                if success:
-                    self.sig_log_bridge.emit("所有缺失依赖安装完成。\n")
-                    QMessageBox.information(self, "成功", "所有缺失依赖安装完成！")
+            dialog = DependencySelectionDialog(self, missing_deps)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                selected_to_install = dialog.selected_dependencies
+                if selected_to_install:
+                    self.sig_log_bridge.emit(f"开始安装选中的依赖: {', '.join(selected_to_install)}\n")
+                    success = True
+                    for dep in selected_to_install:
+                        if not self.env_mgr.install_package(dep, self.sig_log_bridge):
+                            success = False
+                            break
+                    if success:
+                        self.sig_log_bridge.emit("所有选中依赖安装完成。\n")
+                        QMessageBox.information(self, "成功", "所有选中依赖安装完成！")
+                    else:
+                        self.sig_log_bridge.emit("部分依赖安装失败。\n")
+                        QMessageBox.critical(self, "失败", "部分依赖安装失败，请检查日志。")
                 else:
-                    self.sig_log_bridge.emit("部分依赖安装失败。\n")
-                    QMessageBox.critical(self, "失败", "部分依赖安装失败，请检查日志。")
+                    self.sig_log_bridge.emit("没有选择任何依赖进行安装。\n")
             else:
                 self.sig_log_bridge.emit("用户取消了依赖安装。\n")
         else:
@@ -854,36 +1052,46 @@ class MainWindow(QMainWindow):
 
         # 在开始打包前检查依赖
         if self.chk_dep_check._on:
-            # 依赖检测作为一个前置同步操作，确保在打包前完成
-            # 如果需要更复杂的异步行为，可以考虑使用 QThread
             self.sig_log_bridge.emit("自动依赖检测已启用，开始检测...\n")
             
             script_path = self.txt_file.text()
             dependencies = self.env_mgr.parse_dependencies(script_path, self.sig_log_bridge)
-            missing_deps = [dep for dep in dependencies if not self.env_mgr.check_package_installed(dep, self.sig_log_bridge)]
+            missing_deps = []
+            for dep in dependencies:
+                if not self.env_mgr.check_package_installed(dep, self.sig_log_bridge):
+                    missing_deps.append(dep)
 
             if missing_deps:
-                msg = f"检测到以下缺失依赖：\n{', '.join(missing_deps)}\n是否立即安装？"
-                reply = QMessageBox.question(self, "依赖检测", msg, 
-                                             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, 
-                                             QMessageBox.StandardButton.Yes)
-                if reply == QMessageBox.StandardButton.Yes:
-                    self.sig_log_bridge.emit("开始安装缺失依赖...\n")
-                    install_success = True
-                    for dep in missing_deps:
-                        if not self.env_mgr.install_package(dep, self.sig_log_bridge):
-                            install_success = False
-                            break
-                    if not install_success:
-                        QMessageBox.critical(self, "错误", "部分依赖安装失败，打包中止。请检查日志。")
-                        return # 中止打包
+                dialog = DependencySelectionDialog(self, missing_deps)
+                if dialog.exec() == QDialog.DialogCode.Accepted:
+                    selected_to_install = dialog.selected_dependencies
+                    if selected_to_install:
+                        self.sig_log_bridge.emit(f"开始安装选中的依赖: {', '.join(selected_to_install)}\n")
+                        success = True
+                        for dep in selected_to_install:
+                            if not self.env_mgr.install_package(dep, self.sig_log_bridge):
+                                success = False
+                                break
+                        if success:
+                            self.sig_log_bridge.emit("所有选中依赖安装完成。\n")
+                            # 这里不显示 QMessageBox，因为打包会继续
+                        else:
+                            self.sig_log_bridge.emit("部分依赖安装失败。\n")
+                            QMessageBox.critical(self, "错误", "部分依赖安装失败，打包中止。请检查日志。")
+                            return # 中止打包
+                    else:
+                        self.sig_log_bridge.emit("没有选择任何依赖进行安装，打包可能会失败。\n")
+                        QMessageBox.warning(self, "提示", "您选择了不安装缺失依赖，打包可能会失败。")
                 else:
+                    self.sig_log_bridge.emit("用户取消了依赖安装，打包可能会失败。\n")
                     QMessageBox.warning(self, "提示", "您选择了不安装缺失依赖，打包可能会失败。")
-                    # 用户选择不安装，但打包仍然继续
             else:
                 self.sig_log_bridge.emit("所有依赖均已安装。\n")
-
-        self.btn_run.setEnabled(False); self.btn_run.setText("打包构建中..."); self.txt_log.clear()
+        
+        # 依赖检查完成后，无论是否安装，都继续打包流程
+        self.btn_run.setEnabled(False)
+        self.btn_run.setText("打包构建中...")
+        self.txt_log.clear()
         self.start_ts = time.time(); self.lbl_timer.setVisible(True); self.timer.start(1000)
         threading.Thread(target=self.worker, daemon=True).start()
 
