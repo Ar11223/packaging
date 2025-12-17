@@ -493,7 +493,7 @@ class MainWindow(QMainWindow):
         # 1. 入口文件
         card_file = QFrame(objectName="Card")
         l_file = QVBoxLayout(card_file)
-        l_file.setContentsMargins(15, 15, 15, 15)
+        l_file.setContentsMargins(10, 10, 10, 10)
         l_file.addWidget(QLabel("入口文件", objectName="CardTitle"))
         h_file = QHBoxLayout()
         self.txt_file = QLineEdit()
@@ -507,7 +507,7 @@ class MainWindow(QMainWindow):
         # 2. 环境
         card_env = QFrame(objectName="Card")
         l_env = QVBoxLayout(card_env)
-        l_env.setContentsMargins(15, 15, 15, 15)
+        l_env.setContentsMargins(10, 10, 10, 10)
         l_env.addWidget(QLabel("编译环境", objectName="CardTitle"))
         
         h_tab = QHBoxLayout()
@@ -530,7 +530,7 @@ class MainWindow(QMainWindow):
         # 3. 资源
         card_res = QFrame(objectName="Card")
         l_res = QVBoxLayout(card_res)
-        l_res.setContentsMargins(15, 15, 15, 15)
+        l_res.setContentsMargins(10, 10, 10, 10)
         l_res.addWidget(QLabel("资源与输出", objectName="CardTitle"))
         h_out = QHBoxLayout()
         lbl_out = QLabel("输出位置:"); lbl_out.setFixedWidth(70)
@@ -550,7 +550,7 @@ class MainWindow(QMainWindow):
         # 4. 选项
         card_opt = QFrame(objectName="Card")
         l_opt = QVBoxLayout(card_opt)
-        l_opt.setContentsMargins(15, 15, 15, 15)
+        l_opt.setContentsMargins(10, 10, 10, 10)
         l_opt.addWidget(QLabel("构建选项", objectName="CardTitle"))
         
         h_opt_main = QHBoxLayout()
