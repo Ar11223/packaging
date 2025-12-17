@@ -1,5 +1,10 @@
 import sys
 import os
+# 获取真实的 EXE 所在目录，而不是临时解压目录
+if getattr(sys, 'frozen', False):
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 import subprocess
 import threading
 import time
@@ -303,7 +308,7 @@ class BaseTool:
         try: subprocess.check_call([self.env.python_path, "-c", f"import {self.module_name}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); return True
         except: return False
     def find_upx(self):
-        base = os.path.dirname(os.path.abspath(__file__)); tools = os.path.join(base, "tools")
+        base = BASE_DIR; tools = os.path.join(base, "tools")
         if not os.path.exists(tools): return None
         for r, d, f in os.walk(tools):
             if "upx.exe" in f: return r
@@ -327,7 +332,7 @@ class NuitkaTool(BaseTool):
     def __init__(self, env): self.env = env; self.name = "Nuitka"; self.module_name = "nuitka"
     def get_cmd(self, target, out, nocon, icon, upx):
         # 1. 定位 MinGW
-        base = os.path.dirname(os.path.abspath(__file__))
+        base = BASE_DIR
         mingw = os.path.join(base, "tools", MINGW_DIR_NAME, "mingw64", "bin")
         if not os.path.exists(mingw): 
             mingw = os.path.join(base, "tools", MINGW_DIR_NAME, "bin")
@@ -586,6 +591,7 @@ class IconDialog(QDialog):
 # ===========================
 class MainWindow(QMainWindow):
     sig_log_bridge = pyqtSignal(str) # 将信号定义为类属性
+    sig_done = pyqtSignal(bool) # 【新增这行】定义结束信号
 
     def __init__(self):
         super().__init__()
@@ -594,13 +600,14 @@ class MainWindow(QMainWindow):
         self.env_mgr = EnvManager()
         
         # 自动加载 name.png 图标
-        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "name.png")
+        icon_path = os.path.join(BASE_DIR, "name.png")
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
             
         self.timer = QTimer(); self.timer.timeout.connect(self.tick); self.start_ts = 0
         # self.sig_log_bridge = pyqtSignal(str) # 移除此处，已在类级别定义
         self.sig_log_bridge.connect(self.append_log) # 连接信号到日志追加方法
+        self.sig_done.connect(self.done) # 【新增这行】连接信号到处理函数
         self.init_ui()
 
     def init_ui(self):
@@ -890,13 +897,13 @@ class MainWindow(QMainWindow):
             if not tool.check_installed():
                 self.sig_log_bridge.emit(f"打包工具 {tool.name} 未安装。请通过依赖管理功能手动安装。\n")
                 # 这里不自动安装，而是提示用户去手动安装，避免重复逻辑和用户体验冲突
-                self.done(False)
+                self.sig_done.emit(False)
                 return
 
             cmd, env = tool.get_cmd(tgt, out, nocon, icon, upx)
             self.sig_log_bridge.emit(f"Run: {' '.join(cmd)}\n")
-            runner = ToolRunner(cmd, env); runner.signals.log.connect(self.sig_log_bridge.emit); runner.signals.finished.connect(self.done); runner.run()
-        except Exception as e: self.sig_log_bridge.emit(str(e)); self.done(False)
+            runner = ToolRunner(cmd, env); runner.signals.log.connect(self.sig_log_bridge.emit); runner.signals.finished.connect(self.sig_done.emit); runner.run()
+        except Exception as e: self.sig_log_bridge.emit(str(e)); self.sig_done.emit(False)
     def done(self, s):
         self.timer.stop(); self.btn_run.setEnabled(True); self.btn_run.setText("立即打包")
         if s: 
