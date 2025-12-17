@@ -3,6 +3,7 @@ import os
 import subprocess
 import threading
 import time
+import ast # 导入 ast 模块
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QLabel, QLineEdit, QPushButton, QRadioButton, 
                              QCheckBox, QTextEdit, QFileDialog, QComboBox, QSlider, 
@@ -270,8 +271,31 @@ class EnvManager:
     def install_package(self, pkg, signal):
         cmd = [self.python_path, "-m", "pip", "install", pkg]
         signal.emit(f"安装依赖: {' '.join(cmd)}\n")
-        try: subprocess.check_call(cmd); return True
-        except: return False
+        try: subprocess.check_call(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); return True
+        except Exception as e: signal.emit(f"安装依赖 {pkg} 失败: {e}\n"); return False
+
+    def check_package_installed(self, pkg, signal):
+        try:
+            subprocess.check_call([self.python_path, "-c", f"import {pkg}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True
+        except:
+            return False
+
+    def parse_dependencies(self, script_path, signal):
+        dependencies = set()
+        try:
+            with open(script_path, "r", encoding="utf-8") as f:
+                tree = ast.parse(f.read(), filename=script_path)
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        dependencies.add(alias.name.split('.')[0])
+                elif isinstance(node, ast.ImportFrom):
+                    if node.module:
+                        dependencies.add(node.module.split('.')[0])
+        except Exception as e:
+            signal.emit(f"解析依赖时发生错误: {e}\n")
+        return sorted(list(dependencies))
 
 class BaseTool:
     def __init__(self, env): self.env = env
@@ -561,10 +585,12 @@ class IconDialog(QDialog):
 # 主界面
 # ===========================
 class MainWindow(QMainWindow):
+    sig_log_bridge = pyqtSignal(str) # 将信号定义为类属性
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Python Packer Pro")
-        self.resize(800, 680)
+        self.resize(800, 580)
         self.env_mgr = EnvManager()
         
         # 自动加载 name.png 图标
@@ -573,6 +599,8 @@ class MainWindow(QMainWindow):
             self.setWindowIcon(QIcon(icon_path))
             
         self.timer = QTimer(); self.timer.timeout.connect(self.tick); self.start_ts = 0
+        # self.sig_log_bridge = pyqtSignal(str) # 移除此处，已在类级别定义
+        self.sig_log_bridge.connect(self.append_log) # 连接信号到日志追加方法
         self.init_ui()
 
     def init_ui(self):
@@ -667,6 +695,23 @@ class MainWindow(QMainWindow):
         l_opt.setContentsMargins(10, 10, 10, 10)
         l_opt.addWidget(QLabel("构建选项", objectName="CardTitle"))
         
+        # 依赖管理区域
+        card_dep = QFrame(objectName="Card")
+        l_dep = QVBoxLayout(card_dep)
+        l_dep.setContentsMargins(10, 10, 10, 10)
+        l_dep.addWidget(QLabel("依赖管理", objectName="CardTitle"))
+
+        h_dep_check = QHBoxLayout()
+        self.chk_dep_check = ToggleSwitch(self, w=38, h=22); self.chk_dep_check.set_on(False)
+        self.lbl_dep_check = QLabel("自动检测并提示安装缺失依赖")
+        h_dep_check.addWidget(self.chk_dep_check); h_dep_check.addWidget(self.lbl_dep_check); h_dep_check.addStretch()
+        l_dep.addLayout(h_dep_check)
+
+        btn_check_deps = QPushButton("手动检查并安装依赖", objectName="GhostBtn")
+        btn_check_deps.clicked.connect(self.check_and_install_dependencies)
+        l_dep.addWidget(btn_check_deps)
+        l_opt.addWidget(card_dep) # 将新的依赖管理卡片添加到构建选项布局中
+
         h_opt_main = QHBoxLayout()
         v_compiler = QVBoxLayout()
         self.bg_comp = QButtonGroup()
@@ -717,7 +762,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(h_action)
 
         # 6. 日志
-        self.txt_log = QTextEdit(objectName="LogArea"); self.txt_log.setPlaceholderText("Ready..."); self.txt_log.setFixedHeight(100); self.txt_log.setReadOnly(True)
+        self.txt_log = QTextEdit(objectName="LogArea"); self.txt_log.setPlaceholderText("Ready..."); self.txt_log.setFixedHeight(60); self.txt_log.setReadOnly(True)
         layout.addWidget(self.txt_log)
         self.sig_log = pyqtSignal(str)
 
@@ -756,30 +801,111 @@ class MainWindow(QMainWindow):
         s = int(time.time() - self.start_ts)
         self.lbl_timer.setText(f"{s//60:02d}:{s%60:02d}")
     def append_log(self, t): self.txt_log.append(t.strip()); self.txt_log.verticalScrollBar().setValue(100000)
-    sig_log_bridge = pyqtSignal(str)
+    # sig_log_bridge = pyqtSignal(str) # 移除此处，已在 __init__ 中定义
+    def check_and_install_dependencies(self):
+        script_path = self.txt_file.text()
+        if not script_path or not os.path.exists(script_path):
+            QMessageBox.warning(self, "提示", "请先选择一个有效的入口文件。")
+            return
+
+        self.sig_log_bridge.emit("开始检测脚本依赖...\n")
+        dependencies = self.env_mgr.parse_dependencies(script_path, self.sig_log_bridge)
+        
+        missing_deps = []
+        for dep in dependencies:
+            if not self.env_mgr.check_package_installed(dep, self.sig_log_bridge):
+                missing_deps.append(dep)
+        
+        if missing_deps:
+            msg = f"检测到以下缺失依赖：\n{', '.join(missing_deps)}\n是否立即安装？"
+            reply = QMessageBox.question(self, "依赖检测", msg, 
+                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, 
+                                         QMessageBox.StandardButton.Yes)
+            if reply == QMessageBox.StandardButton.Yes:
+                self.sig_log_bridge.emit("开始安装缺失依赖...\n")
+                success = True
+                for dep in missing_deps:
+                    if not self.env_mgr.install_package(dep, self.sig_log_bridge):
+                        success = False
+                        break
+                if success:
+                    self.sig_log_bridge.emit("所有缺失依赖安装完成。\n")
+                    QMessageBox.information(self, "成功", "所有缺失依赖安装完成！")
+                else:
+                    self.sig_log_bridge.emit("部分依赖安装失败。\n")
+                    QMessageBox.critical(self, "失败", "部分依赖安装失败，请检查日志。")
+            else:
+                self.sig_log_bridge.emit("用户取消了依赖安装。\n")
+        else:
+            self.sig_log_bridge.emit("所有依赖均已安装。\n")
+            QMessageBox.information(self, "成功", "所有依赖均已安装。")
+
+
     def start(self):
         tgt = self.txt_file.text(); 
         if not tgt: return QMessageBox.warning(self, "!", "请选择入口文件")
+
+        # 在开始打包前检查依赖
+        if self.chk_dep_check._on:
+            # 依赖检测作为一个前置同步操作，确保在打包前完成
+            # 如果需要更复杂的异步行为，可以考虑使用 QThread
+            self.sig_log_bridge.emit("自动依赖检测已启用，开始检测...\n")
+            
+            script_path = self.txt_file.text()
+            dependencies = self.env_mgr.parse_dependencies(script_path, self.sig_log_bridge)
+            missing_deps = [dep for dep in dependencies if not self.env_mgr.check_package_installed(dep, self.sig_log_bridge)]
+
+            if missing_deps:
+                msg = f"检测到以下缺失依赖：\n{', '.join(missing_deps)}\n是否立即安装？"
+                reply = QMessageBox.question(self, "依赖检测", msg, 
+                                             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, 
+                                             QMessageBox.StandardButton.Yes)
+                if reply == QMessageBox.StandardButton.Yes:
+                    self.sig_log_bridge.emit("开始安装缺失依赖...\n")
+                    install_success = True
+                    for dep in missing_deps:
+                        if not self.env_mgr.install_package(dep, self.sig_log_bridge):
+                            install_success = False
+                            break
+                    if not install_success:
+                        QMessageBox.critical(self, "错误", "部分依赖安装失败，打包中止。请检查日志。")
+                        return # 中止打包
+                else:
+                    QMessageBox.warning(self, "提示", "您选择了不安装缺失依赖，打包可能会失败。")
+                    # 用户选择不安装，但打包仍然继续
+            else:
+                self.sig_log_bridge.emit("所有依赖均已安装。\n")
+
         self.btn_run.setEnabled(False); self.btn_run.setText("打包构建中..."); self.txt_log.clear()
         self.start_ts = time.time(); self.lbl_timer.setVisible(True); self.timer.start(1000)
         threading.Thread(target=self.worker, daemon=True).start()
+
     def worker(self):
-        self.sig_log_bridge.connect(self.append_log)
+        # self.sig_log_bridge.connect(self.append_log) # 信号连接已在 __init__ 中完成，无需重复
         try:
             tgt = self.txt_file.text(); out = self.txt_out.text(); icon = self.txt_icon.text(); nocon = self.chk_nocon._on; upx = self.chk_upx._on
             tool = PyInstallerTool(self.env_mgr) if self.rb_pyi.isChecked() else NuitkaTool(self.env_mgr)
+            
+            # 仅检查打包工具，不自动安装，因为用户已经有依赖管理选项
             if not tool.check_installed():
-                self.sig_log_bridge.emit(f"安装依赖 {tool.name}..."); self.env_mgr.install_package(tool.module_name, self.sig_log_bridge)
+                self.sig_log_bridge.emit(f"打包工具 {tool.name} 未安装。请通过依赖管理功能手动安装。\n")
+                # 这里不自动安装，而是提示用户去手动安装，避免重复逻辑和用户体验冲突
+                self.done(False)
+                return
+
             cmd, env = tool.get_cmd(tgt, out, nocon, icon, upx)
             self.sig_log_bridge.emit(f"Run: {' '.join(cmd)}\n")
             runner = ToolRunner(cmd, env); runner.signals.log.connect(self.sig_log_bridge.emit); runner.signals.finished.connect(self.done); runner.run()
         except Exception as e: self.sig_log_bridge.emit(str(e)); self.done(False)
     def done(self, s):
         self.timer.stop(); self.btn_run.setEnabled(True); self.btn_run.setText("立即打包")
-        if s: QMessageBox.information(self, "OK", "Success!"); os.startfile(self.txt_out.text())
+        if s: 
+            QMessageBox.information(self, "OK", "Success!"); 
+            try: os.startfile(self.txt_out.text())
+            except Exception as e: self.sig_log_bridge.emit(f"无法打开输出目录: {e}\n")
         else: QMessageBox.critical(self, "Err", "Failed.")
-        try: self.sig_log_bridge.disconnect() 
-        except: pass
+        # try: self.sig_log_bridge.disconnect() # 信号是永久连接，无需断开
+        # except: pass
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
