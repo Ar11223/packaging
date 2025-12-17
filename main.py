@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                              QLabel, QLineEdit, QPushButton, QRadioButton, 
                              QCheckBox, QTextEdit, QFileDialog, QComboBox, QSlider, 
                              QMessageBox, QDialog, QFrame, QButtonGroup, QGraphicsDropShadowEffect)
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject, pyqtProperty, QPropertyAnimation
 from PyQt6.QtGui import QPixmap, QImage, QColor, QFont, QCursor, QIcon
 
 # ===========================
@@ -24,55 +24,55 @@ except ImportError:
 # ===========================
 STYLESHEET = """
     /* 全局设定 */
-    QMainWindow { background-color: #f0f2f5; }
+    QMainWindow { background-color: #f0f0f0; }
     QWidget { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; font-size: 13px; color: #333; }
 
     /* 卡片容器 */
     QFrame#Card {
         background-color: #ffffff;
         border-radius: 10px;
-        border: 1px solid #e1e4e8;
+        border: 1px solid #e8e8e8; /* 更柔和的边框 */
     }
 
     /* 标题 */
     QLabel#CardTitle {
         font-weight: bold;
         font-size: 14px;
-        color: #2c3e50;
+        color: #3f4f60; /* 柔和的标题颜色 */
         padding-bottom: 5px;
     }
 
     /* 输入框 */
     QLineEdit {
-        border: 1px solid #dcdfe6;
+        border: 1px solid #e0e0e0; /* 柔和的边框 */
         border-radius: 6px;
         padding: 8px 10px;
-        background-color: #f9faFc;
+        background-color: #ffffff; /* 保持白色背景 */
     }
     QLineEdit:focus {
-        border: 1px solid #409eff;
+        border: 1px solid #4a90e2; /* 与主色调一致 */
         background-color: #fff;
     }
 
     /* 通用按钮 (浏览/选择) */
     QPushButton#GhostBtn {
-        background-color: #ffffff;
-        border: 1px solid #dcdfe6;
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #e0e0e0, stop:1 #d0d0d0);
+        border: 1px solid #c0c0c0;
         border-radius: 6px;
-        color: #606266;
+        color: #333;
         padding: 7px 12px;
         font-weight: 500;
     }
     QPushButton#GhostBtn:hover {
-        background-color: #ecf5ff;
-        border-color: #c6e2ff;
-        color: #409eff;
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #d0d0d0, stop:1 #c0c0c0);
+        border-color: #b0b0b0;
+        color: #222;
     }
 
     /* 编译器选择器 */
     QRadioButton#CompilerBtn {
-        background-color: #f4f6f8;
-        border: 1px solid #e1e4e8;
+        background-color: #f8f8f8;
+        border: 1px solid #dcdcdc;
         border-radius: 8px;
         padding: 10px 15px;
         color: #555;
@@ -81,12 +81,12 @@ STYLESHEET = """
     }
     QRadioButton#CompilerBtn::indicator { width: 0; height: 0; }
     QRadioButton#CompilerBtn:checked {
-        background-color: #ecf5ff;
-        border: 1px solid #409eff;
-        color: #409eff;
+        background-color: #e8f0fe;
+        border: 1px solid #4a90e2;
+        color: #4a90e2;
     }
     QRadioButton#CompilerBtn:hover {
-        border-color: #b3d8ff;
+        border-color: #b0d0f0;
     }
 
     /* 环境选择 (Tab 样式) */
@@ -101,13 +101,13 @@ STYLESHEET = """
     QRadioButton#TabBtn::indicator { width: 0; height: 0; }
     QRadioButton#TabBtn:checked {
         color: #303133;
-        border-bottom: 2px solid #409eff;
+        border-bottom: 2px solid #4a90e2; /* 与PrimaryBtn主色调保持一致 */
         font-weight: bold;
     }
 
     /* 立即打包大按钮 */
     QPushButton#PrimaryBtn {
-        background-color: #2980b9; 
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4a90e2, stop:1 #6aafff);
         border: none;
         border-radius: 8px;
         color: white;
@@ -115,44 +115,28 @@ STYLESHEET = """
         font-weight: bold;
         padding: 12px;
     }
-    QPushButton#PrimaryBtn:hover { background-color: #3498db; }
-    QPushButton#PrimaryBtn:pressed { background-color: #1f618d; }
+    QPushButton#PrimaryBtn:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #5a9ff2, stop:1 #7ac0ff); }
+    QPushButton#PrimaryBtn:pressed { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #3a80d2, stop:1 #5aa0ef); }
     QPushButton#PrimaryBtn:disabled { background-color: #bdc3c7; }
 
     /* 成功按钮 */
     QPushButton#SuccessBtn {
-        background-color: #00b894;
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2ecc71, stop:1 #27ae60);
         border: none;
         border-radius: 6px;
         color: white;
         font-weight: bold;
         padding: 8px 20px;
     }
-    QPushButton#SuccessBtn:hover { background-color: #55efc4; }
+    QPushButton#SuccessBtn:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #3ede81, stop:1 #32be70); }
 
     /* 滑动开关 (Toggle Switch) */
-    QCheckBox#Toggle {
-        spacing: 10px;
-        color: #606266;
-    }
-    QCheckBox#Toggle::indicator {
-        width: 36px;
-        height: 20px;
-        border-radius: 10px;
-        background-color: #dcdfe6;
-    }
-    QCheckBox#Toggle::indicator:checked {
-        background-color: #409eff;
-        image: url(none); 
-        border-left: 16px solid transparent;
-    }
-
     /* 底部日志 */
     QTextEdit#LogArea {
-        background-color: #1e1e1e;
+        background-color: #333333; /* 稍亮的深色背景，与整体更协调 */
         color: #e0e0e0;
         border: none;
-        border-radius: 0 0 0 0;
+        border-radius: 0;
         font-family: Consolas, "Courier New", monospace;
         font-size: 12px;
         padding: 12px;
@@ -162,8 +146,50 @@ STYLESHEET = """
     QLabel#Timer {
         font-size: 24px;
         font-weight: 300;
-        color: #0984e3;
+        color: #4a90e2; /* 与主色调一致 */
         font-family: "Segoe UI Light";
+    }
+    /* 下拉选择框 */
+    QComboBox {
+        border: 1px solid #e0e0e0;
+        border-radius: 6px;
+        padding: 8px 10px;
+        background-color: #ffffff;
+        selection-background-color: #e0e0e0;
+    }
+    QComboBox:focus {
+        border: 1px solid #4a90e2;
+    }
+    QComboBox::drop-down {
+        border: none;
+        background-color: transparent;
+        width: 20px;
+    }
+    QComboBox::down-arrow {
+        image: url(none); /* 隐藏默认箭头 */
+    }
+
+    /* 滑块 */
+    QSlider::groove:horizontal {
+        height: 6px;
+        background: #e0e0e0;
+        border-radius: 3px;
+    }
+    QSlider::handle:horizontal {
+        background: #4a90e2;
+        width: 16px;
+        height: 16px;
+        border-radius: 8px;
+        margin: -5px 0;
+    }
+    QSlider::handle:horizontal:hover {
+        background: #6aafff;
+    }
+    QSlider::add-page:horizontal {
+        background: #c0c0c0;
+    }
+    QSlider::sub-page:horizontal {
+        background: #4a90e2;
     }
 """
 
@@ -315,6 +341,83 @@ class Card(QFrame):
         shadow.setBlurRadius(15); shadow.setColor(QColor(0, 0, 0, 10)); shadow.setOffset(0, 2)
         self.setGraphicsEffect(shadow)
 
+class ToggleSwitch(QWidget):
+    def __init__(self, parent=None, w=50, h=28):
+        super().__init__(parent)
+        self._w, self._h = w, h
+        self.setFixedSize(w, h)
+
+        self._on = False                       # 开关状态
+        self._margin = 2                       # 滑块与背景边缘间距
+        self._thumb_radius = (h - 2 * self._margin) // 2
+        self._track_radius = h // 2
+
+        # 颜色可自定义
+        self._track_off_color = "#c5c5c5"
+        self._track_on_color  = "#1890FF" # 调整为蓝色
+        self._thumb_color     = "#ffffff"
+
+        # 动画
+        self._anim = QPropertyAnimation(self, b"thumb_x", self)
+        self._anim.setDuration(120)
+
+    # -------------- 属性：滑块 x 坐标 --------------
+    def get_thumb_x(self):
+        return self._thumb_x if hasattr(self, "_thumb_x") else self._margin
+
+    def set_thumb_x(self, x):
+        self._thumb_x = x
+        self.update()
+
+    thumb_x = pyqtProperty(int, get_thumb_x, set_thumb_x)
+
+    # -------------- 尺寸、绘制 --------------
+    def paintEvent(self, _):
+        from PyQt6.QtGui import QPainter, QBrush, QColor
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # 画轨道
+        track_color = self._track_on_color if self._on else self._track_off_color
+        p.setBrush(QBrush(QColor(track_color)))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.drawRoundedRect(0, 0, self._w, self._h, self._track_radius, self._track_radius)
+
+        # 画滑块
+        p.setBrush(QBrush(QColor(self._thumb_color)))
+        p.drawEllipse(self.get_thumb_x(), self._margin,
+                      self._thumb_radius * 2, self._thumb_radius * 2)
+
+    # -------------- 鼠标交互 --------------
+    def mousePressEvent(self, e):
+        self._start_x = e.position().x()
+        self._anim.stop()
+
+    def mouseReleaseEvent(self, e):
+        # 轻点切换 / 拖动过半切换
+        if abs(e.position().x() - self._start_x) < 5:          # 点击
+            self.toggle()
+        else:                                                    # 拖动
+            mid = self._w / 2
+            self.set_on(e.position().x() > mid)
+
+    def toggle(self):
+        self.set_on(not self._on)
+
+    def set_on(self, on: bool):
+        if self._on == on:
+            return
+        self._on = on
+        self._anim.setStartValue(self.get_thumb_x())
+        end = self._w - self._thumb_radius * 2 - self._margin if on else self._margin
+        self._anim.setEndValue(end)
+        self._anim.start()
+        self.toggled.emit(on)
+
+    # -------------- 信号 --------------
+    toggled = pyqtSignal(bool)
+
+
 # ===========================
 # 图标制作弹窗
 # ===========================
@@ -324,19 +427,19 @@ class IconDialog(QDialog):
         self.setWindowTitle("图标工作台")
         self.setFixedSize(650, 400)
         self.callback = callback; self.default_dir = default_dir; self.img_path = None; self.zoom = 1.0
-        self.setStyleSheet("background-color: white;")
+        # self.setStyleSheet("background-color: #f0f0f0;") # 移除此行，让其继承全局样式
         layout = QHBoxLayout(self)
         self.lbl_prev = QLabel("暂无图片"); self.lbl_prev.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_prev.setStyleSheet("background: #f8f9fa; border-radius: 8px; color: #999;")
+        self.lbl_prev.setStyleSheet("background: #ffffff; border-radius: 8px; border: 1px solid #e8e8e8; color: #999; font-size: 13px;")
         layout.addWidget(self.lbl_prev, 5)
         ctrl = QVBoxLayout()
         btn_open = QPushButton("📂 打开图片"); btn_open.clicked.connect(self.load); btn_open.setObjectName("GhostBtn")
         ctrl.addWidget(btn_open)
         ctrl.addWidget(QLabel("形状:"))
-        self.cmb = QComboBox(); self.cmb.addItems(["圆角", "方", "圆", "心"]); self.cmb.currentIndexChanged.connect(self.refresh)
+        self.cmb = QComboBox(objectName="IconShapeComboBox"); self.cmb.addItems(["圆角", "方", "圆", "心"]); self.cmb.currentIndexChanged.connect(self.refresh)
         ctrl.addWidget(self.cmb)
         ctrl.addWidget(QLabel("缩放:"))
-        self.sld = QSlider(Qt.Orientation.Horizontal); self.sld.setRange(50,200); self.sld.setValue(100); self.sld.valueChanged.connect(self.slide)
+        self.sld = QSlider(Qt.Orientation.Horizontal, objectName="IconZoomSlider"); self.sld.setRange(50,200); self.sld.setValue(100); self.sld.valueChanged.connect(self.slide)
         ctrl.addWidget(self.sld)
         ctrl.addStretch()
         btn_ok = QPushButton("✅ 生成并使用"); btn_ok.setObjectName("SuccessBtn"); btn_ok.setCursor(QCursor(Qt.CursorShape.PointingHandCursor)); btn_ok.clicked.connect(self.apply)
@@ -396,7 +499,7 @@ class MainWindow(QMainWindow):
         self.txt_file = QLineEdit()
         self.txt_file.setPlaceholderText("选择主程序 .py 文件")
         self.txt_file.setReadOnly(True)
-        btn_file = QPushButton("📁", objectName="GhostBtn"); btn_file.setFixedSize(40, 36); btn_file.clicked.connect(self.sel_file)
+        btn_file = QPushButton("选择文件", objectName="GhostBtn"); btn_file.clicked.connect(self.sel_file)
         h_file.addWidget(self.txt_file); h_file.addWidget(btn_file)
         l_file.addLayout(h_file)
         layout.addWidget(card_file)
@@ -404,13 +507,16 @@ class MainWindow(QMainWindow):
         # 2. 环境
         card_env = QFrame(objectName="Card")
         l_env = QVBoxLayout(card_env)
-        l_env.setContentsMargins(15, 10, 15, 15)
+        l_env.setContentsMargins(15, 15, 15, 15)
+        l_env.addWidget(QLabel("编译环境", objectName="CardTitle"))
+        
         h_tab = QHBoxLayout()
         h_tab.setSpacing(0)
         self.rb_auto = QRadioButton("自动检测", objectName="TabBtn"); self.rb_auto.setChecked(True); self.rb_auto.toggled.connect(self.detect_env)
         self.rb_man = QRadioButton("手动指定", objectName="TabBtn"); self.rb_man.toggled.connect(self.man_env)
         h_tab.addWidget(self.rb_auto); h_tab.addWidget(self.rb_man); h_tab.addStretch()
         l_env.addLayout(h_tab)
+
         bg_path = QFrame()
         bg_path.setStyleSheet("background: #f8f9fa; border-radius: 6px; padding: 8px;")
         l_path = QHBoxLayout(bg_path); l_path.setContentsMargins(5, 0, 5, 0)
@@ -446,6 +552,7 @@ class MainWindow(QMainWindow):
         l_opt = QVBoxLayout(card_opt)
         l_opt.setContentsMargins(15, 15, 15, 15)
         l_opt.addWidget(QLabel("构建选项", objectName="CardTitle"))
+        
         h_opt_main = QHBoxLayout()
         v_compiler = QVBoxLayout()
         self.bg_comp = QButtonGroup()
@@ -455,9 +562,13 @@ class MainWindow(QMainWindow):
         v_compiler.addWidget(self.rb_nuitka); v_compiler.addWidget(self.rb_pyi)
         v_switches = QVBoxLayout()
         v_switches.setContentsMargins(20, 0, 0, 0)
-        self.chk_nocon = QCheckBox("隐藏控制台 (No Console)", objectName="Toggle"); self.chk_nocon.setChecked(True)
-        self.chk_upx = QCheckBox("UPX 压缩 (需 tools 支持)", objectName="Toggle"); self.chk_upx.setChecked(True)
-        v_switches.addStretch(); v_switches.addWidget(self.chk_nocon); v_switches.addSpacing(12); v_switches.addWidget(self.chk_upx); v_switches.addStretch()
+        self.chk_nocon = ToggleSwitch(self, w=38, h=22); self.chk_nocon.set_on(True) # 替换为 ToggleSwitch，调整尺寸
+        self.chk_upx = ToggleSwitch(self, w=38, h=22); self.chk_upx.set_on(True) # 替换为 ToggleSwitch，调整尺寸
+        self.lbl_nocon = QLabel("隐藏控制台 (No Console)") # 添加标签
+        self.lbl_upx = QLabel("UPX 压缩 (需 tools 支持)") # 添加标签
+        h_nocon = QHBoxLayout(); h_nocon.addWidget(self.chk_nocon); h_nocon.addWidget(self.lbl_nocon); h_nocon.addStretch()
+        h_upx = QHBoxLayout(); h_upx.addWidget(self.chk_upx); h_upx.addWidget(self.lbl_upx); h_upx.addStretch()
+        v_switches.addStretch(); v_switches.addLayout(h_nocon); v_switches.addSpacing(6); v_switches.addLayout(h_upx); v_switches.addStretch()
         h_opt_main.addLayout(v_compiler, 4); h_opt_main.addLayout(v_switches, 6)
         l_opt.addLayout(h_opt_main)
         layout.addWidget(card_opt)
@@ -527,7 +638,7 @@ class MainWindow(QMainWindow):
     def worker(self):
         self.sig_log_bridge.connect(self.append_log)
         try:
-            tgt = self.txt_file.text(); out = self.txt_out.text(); icon = self.txt_icon.text(); nocon = self.chk_nocon.isChecked(); upx = self.chk_upx.isChecked()
+            tgt = self.txt_file.text(); out = self.txt_out.text(); icon = self.txt_icon.text(); nocon = self.chk_nocon._on; upx = self.chk_upx._on
             tool = PyInstallerTool(self.env_mgr) if self.rb_pyi.isChecked() else NuitkaTool(self.env_mgr)
             if not tool.check_installed():
                 self.sig_log_bridge.emit(f"安装依赖 {tool.name}..."); self.env_mgr.install_package(tool.module_name, self.sig_log_bridge)
@@ -545,6 +656,10 @@ class MainWindow(QMainWindow):
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setStyleSheet(STYLESHEET)
+
+    # 显式设置应用程序的默认字体，以避免某些环境下字体大小为0
+    default_font = QFont("Segoe UI", 9)  # 设置一个合理的默认字体和大小
+    app.setFont(default_font)
     
     if hasattr(Qt.ApplicationAttribute, 'AA_EnableHighDpiScaling'):
         app.setAttribute(Qt.ApplicationAttribute.AA_EnableHighDpiScaling, True)
