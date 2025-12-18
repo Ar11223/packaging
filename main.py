@@ -22,11 +22,11 @@ import importlib.util
 import pkgutil
 import shutil
 import glob
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                             QLabel, QLineEdit, QPushButton, QRadioButton, 
-                             QCheckBox, QTextEdit, QFileDialog, QComboBox, QSlider, 
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+                             QLabel, QLineEdit, QPushButton, QRadioButton,
+                             QCheckBox, QTextEdit, QFileDialog, QComboBox, QSlider,
                              QMessageBox, QDialog, QFrame, QButtonGroup, QGraphicsDropShadowEffect,
-                             QListWidget, QListWidgetItem)
+                             QListWidget, QListWidgetItem, QProgressBar)
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject, pyqtProperty, QPropertyAnimation, QRect, QPoint
 from PyQt6.QtGui import QPixmap, QImage, QColor, QFont, QCursor, QIcon, QPainter, QBrush, QPen, QPolygon
 
@@ -46,12 +46,13 @@ STYLESHEET = """
     /* 全局设定 - 简约大气的商务风格 */
     QMainWindow {
         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                    stop:0 #f5f7fa, stop:1 #e8ecf1);
+                                    stop:0 #eef2f7, stop:1 #dce4ed);
     }
     QWidget {
-        font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
-        font-size: 13px;
-        color: #2c3e50;
+        font-family: "STZhongsong", "华文中宋", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+        font-size: 14px;
+        color: #1a2332;
+        font-weight: 500;
     }
 
     /* 卡片容器 - 精致阴影与圆角 */
@@ -63,198 +64,228 @@ STYLESHEET = """
 
     /* 标题 - 更专业的排版 */
     QLabel#CardTitle {
-        font-weight: 600;
-        font-size: 15px;
-        color: #1a2332;
+        font-weight: 700;
+        font-size: 16px;
+        color: #0d1829;
         padding-bottom: 8px;
-        letter-spacing: 0.5px;
+        letter-spacing: 0.3px;
     }
 
-    /* 输入框 - 极简商务风 */
+    /* 输入框 - 极简商务风 - 优化渐变效果 */
     QLineEdit {
-        border: 1px solid #d8dde6;
+        border: 1px solid #c5d0dd;
         border-radius: 8px;
-        padding: 10px 14px;
-        background-color: #f9fafb;
-        color: #2c3e50;
+        padding: 11px 15px;
+        background-color: #f5f8fb;
+        color: #1a2332;
+        font-size: 14px;
+        font-weight: 500;
         selection-background-color: #4a90e2;
+    }
+    QLineEdit:hover {
+        border-color: #a8b8cc;
+        background-color: #fafcfe;
     }
     QLineEdit:focus {
         border: 2px solid #4a90e2;
         background-color: #ffffff;
-        padding: 9px 13px;
+        padding: 10px 14px;
     }
     QLineEdit:read-only {
-        background-color: #f5f7fa;
-        color: #7f8c8d;
+        background-color: #eef2f7;
+        color: #5a6c7d;
     }
 
-    /* 通用按钮 - 现代扁平化 */
+    /* 通用按钮 - 现代扁平化 - 增强渐变 */
     QPushButton#GhostBtn {
         background-color: transparent;
-        border: 2px solid #5d9cec;
+        border: 2px solid #4a8dd9;
         border-radius: 8px;
-        color: #5d9cec;
-        padding: 9px 20px;
-        font-weight: 600;
-        letter-spacing: 0.5px;
+        color: #4a8dd9;
+        padding: 10px 22px;
+        font-weight: 700;
+        font-size: 14px;
+        letter-spacing: 0.3px;
     }
     QPushButton#GhostBtn:hover {
-        background-color: #5d9cec;
-        border-color: #5d9cec;
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                    stop:0 #5a9de9, stop:1 #4a8dd9);
+        border-color: #5a9de9;
         color: #ffffff;
     }
     QPushButton#GhostBtn:pressed {
-        background-color: #4a8dd9;
-        border-color: #4a8dd9;
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                    stop:0 #3a7dc9, stop:1 #2a6db9);
+        border-color: #3a7dc9;
     }
 
-    /* 编译器选择器 - 卡片式设计 */
+    /* 编译器选择器 - 卡片式设计 - 优化渐变 */
     QRadioButton#CompilerBtn {
-        background-color: #f8f9fb;
-        border: 2px solid #e4e7ed;
+        background-color: #f5f8fb;
+        border: 2px solid #d8dde6;
         border-radius: 10px;
-        padding: 14px 18px;
-        color: #606266;
-        font-weight: 600;
+        padding: 15px 20px;
+        color: #4a5568;
+        font-weight: 700;
+        font-size: 14px;
         text-align: left;
     }
     QRadioButton#CompilerBtn::indicator { width: 0; height: 0; }
     QRadioButton#CompilerBtn:checked {
-        background-color: #ecf5ff;
-        border: 2px solid #5d9cec;
-        color: #5d9cec;
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                    stop:0 #f0f7ff, stop:1 #e8f4fd);
+        border: 2px solid #4a8dd9;
+        color: #2563a8;
     }
     QRadioButton#CompilerBtn:hover {
-        border-color: #a0cfff;
-        background-color: #f4f9ff;
+        border-color: #8cb5e5;
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                    stop:0 #fafcfe, stop:1 #f0f7ff);
     }
 
     /* 分段控制器 - 精致的商务风格 */
     QFrame#SegmentedControlFrame {
-        border: 2px solid #e4e7ed;
+        border: 2px solid #d8dde6;
         border-radius: 10px;
-        background-color: #f5f7fa;
+        background-color: #eef2f7;
         padding: 2px;
     }
 
     QRadioButton#SegmentedControlBtn {
         background-color: transparent;
         border: none;
-        padding: 10px 24px;
-        color: #606266;
-        font-weight: 500;
+        padding: 11px 26px;
+        color: #4a5568;
+        font-weight: 600;
+        font-size: 14px;
         min-width: 100px;
     }
     QRadioButton#SegmentedControlBtn::indicator { width: 0; height: 0; }
     QRadioButton#SegmentedControlBtn:hover {
-        color: #4a90e2;
+        color: #2563a8;
+        background-color: #dde8f3;
+        border-radius: 8px;
     }
     QRadioButton#SegmentedControlBtn:checked {
-        background-color: #5d9cec;
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                    stop:0 #5a9de9, stop:1 #4a8dd9);
         color: white;
         border-radius: 8px;
-        font-weight: 600;
+        font-weight: 700;
     }
 
-    /* 立即打包大按钮 - 高级渐变 */
+    /* 立即打包大按钮 - 高级渐变 - 优化层次感 */
     QPushButton#PrimaryBtn {
         background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                    stop:0 #5d9cec, stop:1 #4fc3f7);
+                                    stop:0 #4a8dd9, stop:1 #3eaed0);
         border: none;
         border-radius: 10px;
         color: white;
-        font-size: 17px;
-        font-weight: 600;
-        padding: 16px;
-        letter-spacing: 1px;
+        font-size: 18px;
+        font-weight: 700;
+        padding: 17px;
+        letter-spacing: 0.8px;
     }
     QPushButton#PrimaryBtn:hover {
         background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                    stop:0 #6daef5, stop:1 #5fd4ff);
+                                    stop:0 #5a9de9, stop:1 #4ebee0);
+        padding: 18px 17px 16px 17px;
     }
     QPushButton#PrimaryBtn:pressed {
         background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                    stop:0 #4a8dd9, stop:1 #3eb3e5);
+                                    stop:0 #3a7dc9, stop:1 #2e9ec0);
+        padding: 16px 17px 18px 17px;
     }
     QPushButton#PrimaryBtn:disabled {
-        background: #d5dce6;
-        color: #b0b8c1;
+        background: #c5d0dd;
+        color: #9ca8b5;
     }
 
-    /* 成功按钮 */
+    /* 成功按钮 - 优化渐变 */
     QPushButton#SuccessBtn {
         background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                    stop:0 #52c41a, stop:1 #73d13d);
+                                    stop:0 #42b40a, stop:1 #63c42d);
         border: none;
         border-radius: 8px;
         color: white;
-        font-weight: 600;
-        padding: 10px 24px;
-        letter-spacing: 0.5px;
+        font-weight: 700;
+        font-size: 14px;
+        padding: 11px 26px;
+        letter-spacing: 0.3px;
     }
     QPushButton#SuccessBtn:hover {
         background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                    stop:0 #6dd42a, stop:1 #8ee44d);
+                                    stop:0 #5dc41a, stop:1 #7ed43d);
+        padding: 12px 26px 10px 26px;
     }
     QPushButton#SuccessBtn:pressed {
         background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                    stop:0 #42b40a, stop:1 #63c42d);
+                                    stop:0 #32a400, stop:1 #53b41d);
+        padding: 10px 26px 12px 26px;
     }
 
-    /* 取消/危险按钮 */
+    /* 取消/危险按钮 - 优化渐变 */
     QPushButton#DangerBtn {
         background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                    stop:0 #ed5565, stop:1 #da4453);
+                                    stop:0 #dc4555, stop:1 #ca3443);
         border: none;
         border-radius: 10px;
         color: white;
-        font-size: 17px;
-        font-weight: 600;
-        padding: 16px;
-        letter-spacing: 1px;
+        font-size: 18px;
+        font-weight: 700;
+        padding: 17px;
+        letter-spacing: 0.8px;
     }
     QPushButton#DangerBtn:hover {
         background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                    stop:0 #fc6575, stop:1 #ea5463);
+                                    stop:0 #ec5565, stop:1 #da4453);
+        padding: 18px 17px 16px 17px;
     }
     QPushButton#DangerBtn:pressed {
         background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                    stop:0 #dc4555, stop:1 #ca3443);
+                                    stop:0 #cc3545, stop:1 #ba2433);
+        padding: 16px 17px 18px 17px;
     }
 
     /* 底部日志 - 专业终端风格 */
     QTextEdit#LogArea {
-        background-color: #2c3e50;
-        color: #ecf0f1;
+        background-color: #1e2936;
+        color: #e8edf2;
         border: none;
         border-radius: 10px;
         font-family: "Consolas", "Monaco", "Courier New", monospace;
-        font-size: 12px;
-        padding: 16px;
+        font-size: 13px;
+        font-weight: 500;
+        padding: 18px;
     }
     
     /* 计时器 - 优雅细腻 */
     QLabel#Timer {
-        font-size: 28px;
-        font-weight: 300;
-        color: #5d9cec;
-        font-family: "Segoe UI Light", "Microsoft YaHei UI Light";
-        letter-spacing: 2px;
+        font-size: 32px;
+        font-weight: 400;
+        color: #3a7dc9;
+        font-family: "STZhongsong", "华文中宋", "Segoe UI", "Microsoft YaHei UI";
+        letter-spacing: 3px;
     }
     
-    /* 下拉选择框 - 现代设计 */
+    /* 下拉选择框 - 现代设计 - 优化渐变 */
     QComboBox {
-        border: 1px solid #d8dde6;
+        border: 1px solid #c5d0dd;
         border-radius: 8px;
-        padding: 10px 14px;
-        background-color: #f9fafb;
+        padding: 11px 15px;
+        background-color: #f5f8fb;
         selection-background-color: #e8f4fd;
-        color: #2c3e50;
+        color: #1a2332;
+        font-size: 14px;
+        font-weight: 500;
+    }
+    QComboBox:hover {
+        border-color: #8cb5e5;
+        background-color: #fafcfe;
     }
     QComboBox:focus {
-        border: 2px solid #5d9cec;
-        padding: 9px 13px;
+        border: 2px solid #4a8dd9;
+        padding: 10px 14px;
         background-color: #ffffff;
     }
     QComboBox::drop-down {
@@ -272,34 +303,67 @@ STYLESHEET = """
         selection-background-color: #e8f4fd;
         selection-color: #2c3e50;
         padding: 4px;
+        outline: none;
+    }
+    QComboBox QAbstractItemView::item {
+        padding: 8px 12px;
+        border-radius: 4px;
+    }
+    QComboBox QAbstractItemView::item:hover {
+        background-color: #f0f7ff;
+    }
+    QComboBox QAbstractItemView::item:selected {
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                    stop:0 #f0f7ff, stop:1 #e8f4fd);
     }
 
-    /* 滑块 - 精致设计 */
+    /* 进度条 - 现代渐变动画风格 */
+    QProgressBar {
+        border: none;
+        border-radius: 8px;
+        background-color: #e4e7ed;
+        height: 16px;
+        text-align: center;
+        font-size: 12px;
+        font-weight: 600;
+        color: #3a4a5d;
+    }
+    QProgressBar::chunk {
+        border-radius: 8px;
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                    stop:0 #4a8dd9, stop:0.5 #5d9cec, stop:1 #4fc3f7);
+    }
+
+    /* 滑块 - 精致设计 - 优化渐变 */
     QSlider::groove:horizontal {
         height: 4px;
         background: #e4e7ed;
         border-radius: 2px;
     }
     QSlider::handle:horizontal {
-        background: #5d9cec;
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                    stop:0 #6ba5f0, stop:1 #5d9cec);
         width: 18px;
         height: 18px;
         border-radius: 9px;
         margin: -7px 0;
-        border: 2px solid #ffffff;
+        border: 3px solid #ffffff;
     }
     QSlider::handle:horizontal:hover {
-        background: #4fc3f7;
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                    stop:0 #7fc3f7, stop:1 #4fc3f7);
         width: 20px;
         height: 20px;
         margin: -8px 0;
+        border: 3px solid #f0f7ff;
     }
     QSlider::add-page:horizontal {
         background: #d5dce6;
         border-radius: 2px;
     }
     QSlider::sub-page:horizontal {
-        background: #5d9cec;
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                    stop:0 #5d9cec, stop:1 #4fc3f7);
         border-radius: 2px;
     }
 """
@@ -772,7 +836,8 @@ class NuitkaTool(BaseTool):
             self.env.python_path,
             "-m", "nuitka",
             "--standalone",
-            "--onefile",
+            # 注意：不使用 --onefile 以加快打包速度
+            # --onefile 会进行单文件压缩，对于 Qt 等大型库非常慢
             
             # --- 性能优化：并行编译 ---
             f"--jobs={jobs}",
@@ -825,26 +890,24 @@ class NuitkaTool(BaseTool):
         if icon:
             cmd.append(f"--windows-icon-from-ico={icon}")
         
-        # 压缩模式处理
-        if compress_mode == 0:  # 双层压缩：内压缩 + UPX
+        # 压缩模式处理（standalone 模式不支持 onefile 压缩选项）
+        if compress_mode == 0:  # 双层压缩：启用 UPX
             u = self.find_upx()
             if u:
                 cmd.append("--enable-plugin=upx")
                 env["PATH"] = u + os.pathsep + env["PATH"]
             else:
                 cmd.append("--disable-plugin=upx")
-        elif compress_mode == 1:  # 仅内压缩：禁用UPX
+        elif compress_mode == 1:  # 仅内压缩：禁用UPX（standalone 模式下无额外内压缩）
             cmd.append("--disable-plugin=upx")
-        elif compress_mode == 2:  # 仅UPX：禁用内压缩，启用UPX
-            cmd.append("--onefile-no-compression")
+        elif compress_mode == 2:  # 仅UPX：启用UPX
             u = self.find_upx()
             if u:
                 cmd.append("--enable-plugin=upx")
                 env["PATH"] = u + os.pathsep + env["PATH"]
             else:
                 cmd.append("--disable-plugin=upx")
-        else:  # 不压缩：禁用内压缩和UPX
-            cmd.append("--onefile-no-compression")
+        else:  # 不压缩：禁用UPX
             cmd.append("--disable-plugin=upx")
             
         return cmd, env
@@ -853,16 +916,164 @@ class WorkerSignals(QObject):
     log = pyqtSignal(str)
     finished = pyqtSignal(bool)
     cancelled = pyqtSignal()  # 新增：取消信号
+    progress = pyqtSignal(int)  # 新增：进度信号 (0-100)
+
+
+class ProgressParser:
+    """解析打包输出并估算进度百分比"""
+    
+    # Nuitka 阶段权重（总和100）
+    NUITKA_STAGES = {
+        'analyzing': (0, 10),      # 分析阶段 0-10%
+        'module_analysis': (10, 25),  # 模块分析 10-25%
+        'creating': (25, 40),      # 创建中间代码 25-40%
+        'compiling': (40, 85),     # 编译C代码 40-85%
+        'linking': (85, 95),       # 链接 85-95%
+        'finishing': (95, 100),    # 完成 95-100%
+    }
+    
+    # PyInstaller 阶段权重
+    PYINSTALLER_STAGES = {
+        'analyzing': (0, 30),      # 分析脚本 0-30%
+        'processing': (30, 60),    # 处理资源 30-60%
+        'building': (60, 90),      # 构建 60-90%
+        'finishing': (90, 100),    # 完成 90-100%
+    }
+    
+    def __init__(self, tool_name='nuitka'):
+        self.tool_name = tool_name.lower()
+        self.current_progress = 0
+        self.current_stage = None
+        self._compile_count = 0
+        self._total_modules = 0
+    
+    def reset(self):
+        """重置进度"""
+        self.current_progress = 0
+        self.current_stage = None
+        self._compile_count = 0
+        self._total_modules = 0
+    
+    def parse_line(self, line: str) -> int:
+        """解析一行输出并返回估算的进度百分比"""
+        line_lower = line.lower()
+        
+        if self.tool_name == 'nuitka':
+            return self._parse_nuitka(line, line_lower)
+        else:
+            return self._parse_pyinstaller(line, line_lower)
+    
+    def _parse_nuitka(self, line: str, line_lower: str) -> int:
+        """解析 Nuitka 输出"""
+        stages = self.NUITKA_STAGES
+        
+        # 检测各个阶段
+        if 'nuitka-scons:info' in line_lower:
+            # 编译阶段的详细信息
+            if 'backend' in line_lower or 'c compiler' in line_lower:
+                self.current_stage = 'compiling'
+                self.current_progress = stages['compiling'][0]
+            elif 'linking' in line_lower:
+                self.current_stage = 'linking'
+                self.current_progress = stages['linking'][0]
+        
+        elif 'nuitka:info' in line_lower or 'nuitka: info' in line_lower:
+            if 'analysing' in line_lower or 'analyzing' in line_lower:
+                self.current_stage = 'analyzing'
+                self.current_progress = stages['analyzing'][0]
+            elif 'module' in line_lower and 'included' in line_lower:
+                self.current_stage = 'module_analysis'
+                # 根据模块数量估算进度
+                self._total_modules += 1
+                progress_in_stage = min(self._total_modules * 0.5, 15)
+                self.current_progress = int(stages['module_analysis'][0] + progress_in_stage)
+            elif 'creating' in line_lower or 'generating' in line_lower:
+                self.current_stage = 'creating'
+                self.current_progress = stages['creating'][0]
+        
+        # 编译进度检测 - 检测 .c 文件编译
+        if '.c' in line and ('compiling' in line_lower or 'gcc' in line_lower or 'cl.exe' in line_lower or 'msvc' in line_lower):
+            self.current_stage = 'compiling'
+            self._compile_count += 1
+            # 假设大约有100个文件需要编译，动态计算进度
+            compile_progress = min(self._compile_count * 0.5, 45)
+            self.current_progress = int(stages['compiling'][0] + compile_progress)
+        
+        # 检测编译百分比输出（如果有的话）
+        if 'scons:' in line_lower and '%' in line:
+            import re
+            match = re.search(r'(\d+)\s*%', line)
+            if match:
+                percent = int(match.group(1))
+                # 映射到编译阶段
+                compile_start, compile_end = stages['compiling']
+                compile_range = compile_end - compile_start
+                self.current_progress = int(compile_start + (percent / 100) * compile_range)
+        
+        # 链接检测
+        if 'linking' in line_lower or 'link.exe' in line_lower:
+            self.current_stage = 'linking'
+            self.current_progress = max(self.current_progress, stages['linking'][0])
+        
+        # 完成检测
+        if 'onefile' in line_lower and ('creating' in line_lower or 'building' in line_lower):
+            self.current_stage = 'finishing'
+            self.current_progress = stages['finishing'][0]
+        
+        if 'successfully' in line_lower or 'completed' in line_lower:
+            self.current_progress = 100
+        
+        return min(self.current_progress, 100)
+    
+    def _parse_pyinstaller(self, line: str, line_lower: str) -> int:
+        """解析 PyInstaller 输出"""
+        stages = self.PYINSTALLER_STAGES
+        
+        # 分析阶段
+        if 'analyzing' in line_lower or 'analysis' in line_lower:
+            self.current_stage = 'analyzing'
+            if 'complete' in line_lower:
+                self.current_progress = stages['analyzing'][1]
+            else:
+                self.current_progress = max(self.current_progress, stages['analyzing'][0] + 10)
+        
+        # 处理阶段
+        elif 'processing' in line_lower or 'copying' in line_lower:
+            self.current_stage = 'processing'
+            self.current_progress = max(self.current_progress, stages['processing'][0])
+            if 'binary' in line_lower or 'data' in line_lower:
+                self.current_progress = min(self.current_progress + 5, stages['processing'][1])
+        
+        # 构建阶段
+        elif 'building' in line_lower:
+            self.current_stage = 'building'
+            if 'exe' in line_lower:
+                self.current_progress = stages['building'][0] + 20
+            elif 'pyz' in line_lower:
+                self.current_progress = stages['building'][0] + 10
+            else:
+                self.current_progress = max(self.current_progress, stages['building'][0])
+        
+        # 打包阶段
+        elif 'appending' in line_lower or 'upx' in line_lower:
+            self.current_progress = max(self.current_progress, 85)
+        
+        # 完成
+        elif 'successfully' in line_lower or 'completed' in line_lower:
+            self.current_progress = 100
+        
+        return min(self.current_progress, 100)
 
 
 class ToolRunner(QObject):
-    def __init__(self, cmd, env):
+    def __init__(self, cmd, env, tool_name='nuitka'):
         super().__init__()
         self.cmd = cmd
         self.env = env
         self.signals = WorkerSignals()
         self._process = None
         self._cancelled = False
+        self._progress_parser = ProgressParser(tool_name)
     
     @property
     def is_running(self):
@@ -917,6 +1128,9 @@ class ToolRunner(QObject):
                 if self._cancelled:
                     break
                 self.signals.log.emit(line)
+                # 解析进度并发送信号
+                progress = self._progress_parser.parse_line(line)
+                self.signals.progress.emit(progress)
             
             self._process.wait()
             
@@ -1084,9 +1298,11 @@ class ToggleSwitch(QWidget):
         self._track_on_color  = "#5d9cec"
         self._thumb_color     = "#ffffff"
 
-        # 动画
+        # 动画 - 使用更平滑的缓动曲线
         self._anim = QPropertyAnimation(self, b"thumb_x", self)
-        self._anim.setDuration(120)
+        self._anim.setDuration(200)
+        from PyQt6.QtCore import QEasingCurve
+        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
 
     # -------------- 属性：滑块 x 坐标 --------------
     def get_thumb_x(self):
@@ -1358,6 +1574,7 @@ class MainWindow(QMainWindow):
     sig_cancelled = pyqtSignal()  # 新增：打包取消信号
     sig_dep_check_done = pyqtSignal(list)  # 依赖检查完成信号
     sig_dep_install_done = pyqtSignal(list)  # 依赖安装完成信号
+    sig_progress = pyqtSignal(int)  # 新增：进度更新信号
 
     def __init__(self):
         super().__init__()
@@ -1387,6 +1604,7 @@ class MainWindow(QMainWindow):
         self.sig_cancelled.connect(self._on_cancelled)  # 连接取消信号
         self.sig_dep_check_done.connect(self._on_dep_check_done)  # 连接依赖检查完成信号
         self.sig_dep_install_done.connect(self._on_dep_install_done)  # 连接依赖安装完成信号
+        self.sig_progress.connect(self._update_progress)  # 连接进度信号
         self.init_ui()
 
     def init_ui(self):
@@ -1469,7 +1687,7 @@ class MainWindow(QMainWindow):
 
         initial_python_version = self.env_mgr.get_python_version()
         self.lbl_env = QLabel(f"{self.env_mgr.python_path} ({initial_python_version})")
-        self.lbl_env.setStyleSheet("color: #5a6c7d; font-family: 'Consolas', 'Monaco', monospace; font-size: 11.5px;")
+        self.lbl_env.setStyleSheet("color: #3a4a5d; font-family: 'Consolas', 'Monaco', monospace; font-size: 12px; font-weight: 600;")
         
         l_path.addWidget(self.lbl_env)
         l_path.addStretch()
@@ -1504,47 +1722,46 @@ class MainWindow(QMainWindow):
         l_opt.addWidget(QLabel("构建选项", objectName="CardTitle"))
         
         # 依赖管理区域
-        card_dep = QFrame(objectName="Card")
-        l_dep = QVBoxLayout(card_dep)
-        l_dep.setContentsMargins(16, 14, 16, 16)
-        l_dep.addWidget(QLabel("依赖管理", objectName="CardTitle"))
-
         h_dep_check = QHBoxLayout()
         self.chk_dep_check = ToggleSwitch(self, w=38, h=22); self.chk_dep_check.set_on(False)
-        self.lbl_dep_check = QLabel("自动检测并提示安装缺失依赖")
-        h_dep_check.addWidget(self.chk_dep_check); h_dep_check.addWidget(self.lbl_dep_check); h_dep_check.addStretch()
-        l_dep.addLayout(h_dep_check)
-
-        btn_check_deps = QPushButton("手动检查并安装依赖", objectName="GhostBtn")
+        self.lbl_dep_check = QLabel("自动检测并安装缺失依赖")
+        h_dep_check.addWidget(self.chk_dep_check)
+        h_dep_check.addWidget(self.lbl_dep_check)
+        h_dep_check.addStretch()
+        
+        btn_check_deps = QPushButton("手动检查依赖", objectName="GhostBtn")
         btn_check_deps.clicked.connect(self.check_and_install_dependencies)
-        l_dep.addWidget(btn_check_deps)
-        l_opt.addWidget(card_dep) # 将新的依赖管理卡片添加到构建选项布局中
+        btn_check_deps.setFixedWidth(140)
+        h_dep_check.addWidget(btn_check_deps)
+        
+        l_opt.addLayout(h_dep_check)
+        l_opt.addSpacing(12)  # 添加间距
 
-        h_opt_main = QHBoxLayout()
-        v_compiler = QVBoxLayout()
+        # 编译器选择按钮
+        h_compiler = QHBoxLayout()
         self.bg_comp = QButtonGroup()
         self.rb_nuitka = QRadioButton("Nuitka 编译器", objectName="CompilerBtn"); self.rb_nuitka.setChecked(True)
         self.rb_pyi = QRadioButton("PyInstaller 打包器", objectName="CompilerBtn")
         self.bg_comp.addButton(self.rb_nuitka); self.bg_comp.addButton(self.rb_pyi)
-
-        # 左侧布局: PyInstaller 和 隐藏控制台
-        v_left_column = QVBoxLayout()
-        v_left_column.addWidget(self.rb_pyi)
+        h_compiler.addWidget(self.rb_nuitka)
+        h_compiler.addWidget(self.rb_pyi)
+        l_opt.addLayout(h_compiler)
+        l_opt.addSpacing(10)
         
+        # 隐藏控制台选项
         h_nocon = QHBoxLayout()
         self.chk_nocon = ToggleSwitch(self, w=38, h=22); self.chk_nocon.set_on(True)
         self.lbl_nocon = QLabel("隐藏控制台")
-        h_nocon.addWidget(self.chk_nocon); h_nocon.addWidget(self.lbl_nocon); h_nocon.addStretch()
-        v_left_column.addLayout(h_nocon)
-        v_left_column.addStretch() # 确保左侧内容向上对齐
+        h_nocon.addWidget(self.chk_nocon)
+        h_nocon.addWidget(self.lbl_nocon)
+        h_nocon.addStretch()
+        l_opt.addLayout(h_nocon)
+        l_opt.addSpacing(10)
 
-        # 右侧布局: Nuitka 和 压缩方式选择
-        v_right_column = QVBoxLayout()
-        v_right_column.addWidget(self.rb_nuitka)
-
-        # 压缩方式选择
+        # 压缩方式选择（紧凑布局）
         h_compress = QHBoxLayout()
         lbl_compress = QLabel("压缩方式:")
+        lbl_compress.setFixedWidth(70)
         self.cmb_compress = QComboBox()
         self.cmb_compress.addItems(["双层压缩", "仅内压缩", "仅UPX", "不压缩"])
         self.cmb_compress.setCurrentIndex(3)  # 默认不压缩（速度最快）
@@ -1555,13 +1772,13 @@ class MainWindow(QMainWindow):
             "不压缩：不进行任何压缩（速度最快，推荐开发调试时使用）"
         )
         h_compress.addWidget(lbl_compress)
-        h_compress.addWidget(self.cmb_compress)
-        h_compress.addStretch()
-        v_right_column.addLayout(h_compress)
+        h_compress.addWidget(self.cmb_compress, 1)
+        l_opt.addLayout(h_compress)
         
         # 编译后端选择（仅 Nuitka 使用）
         h_backend = QHBoxLayout()
         lbl_backend = QLabel("编译后端:")
+        lbl_backend.setFixedWidth(70)
         self.cmb_backend = QComboBox()
         self._update_backend_options()  # 初始化可用后端
         self.cmb_backend.setToolTip(
@@ -1571,13 +1788,13 @@ class MainWindow(QMainWindow):
             "提示：使用 MSVC 可避免下载 MinGW，编译速度更快"
         )
         h_backend.addWidget(lbl_backend)
-        h_backend.addWidget(self.cmb_backend)
-        h_backend.addStretch()
-        v_right_column.addLayout(h_backend)
+        h_backend.addWidget(self.cmb_backend, 1)
+        l_opt.addLayout(h_backend)
         
         # 并行编译任务数设置
         h_jobs = QHBoxLayout()
         lbl_jobs = QLabel("并行任务:")
+        lbl_jobs.setFixedWidth(70)
         self.cmb_jobs = QComboBox()
         # 获取 CPU 核心数并设置选项
         try:
@@ -1597,14 +1814,13 @@ class MainWindow(QMainWindow):
             "建议：CPU 核心数或稍多一点"
         )
         h_jobs.addWidget(lbl_jobs)
-        h_jobs.addWidget(self.cmb_jobs)
-        h_jobs.addStretch()
-        v_right_column.addLayout(h_jobs)
+        h_jobs.addWidget(self.cmb_jobs, 1)
+        l_opt.addLayout(h_jobs)
+        l_opt.addSpacing(8)
         
         # GUI 框架自动检测提示
-        h_gui_hint = QHBoxLayout()
-        lbl_gui_hint = QLabel("💡 GUI框架自动检测")
-        lbl_gui_hint.setStyleSheet("color: #909399; font-size: 11px;")
+        lbl_gui_hint = QLabel("💡 GUI框架自动检测 (无需配置)")
+        lbl_gui_hint.setStyleSheet("color: #6b7785; font-size: 12px;")
         lbl_gui_hint.setToolTip(
             "自动检测目标脚本使用的 GUI 框架\n"
             "支持: PyQt6, PyQt5, PySide6, PySide2, tkinter, wxPython\n"
@@ -1613,30 +1829,37 @@ class MainWindow(QMainWindow):
             "Nuitka 对 PySide6 的支持优于 PyQt6\n"
             "如果使用 PyQt6 遇到问题（如线程不工作），建议切换到 PySide6"
         )
-        h_gui_hint.addWidget(lbl_gui_hint)
-        h_gui_hint.addStretch()
-        v_right_column.addLayout(h_gui_hint)
+        l_opt.addWidget(lbl_gui_hint)
         
         # 编译器切换时更新后端选项的可见性
         self.rb_nuitka.toggled.connect(self._on_compiler_changed)
         self.rb_pyi.toggled.connect(self._on_compiler_changed)
-        v_right_column.addStretch() # 确保右侧内容向上对齐
 
-        h_opt_main.addLayout(v_left_column)
-        h_opt_main.addLayout(v_right_column)
-        l_opt.addLayout(h_opt_main)
         right_v_layout.addWidget(card_opt)
 
 
         # 5. 操作区 (已拆分)
 
-        # 计时器单独放在底部布局的顶部
-        h_timer_layout = QHBoxLayout()
-        h_timer_layout.addStretch()
-        self.lbl_timer = QLabel("00:00", objectName="Timer"); self.lbl_timer.setVisible(False)
-        h_timer_layout.addWidget(self.lbl_timer)
-        h_timer_layout.addStretch()
-        bottom_v_layout.addLayout(h_timer_layout)
+        # 进度条和计时器放在底部布局的顶部
+        h_progress_layout = QHBoxLayout()
+        h_progress_layout.setSpacing(16)
+        
+        # 进度条
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setMinimum(0)
+        self.progress_bar.setMaximum(100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setFormat("%p% - 打包中...")
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setMinimumHeight(20)
+        h_progress_layout.addWidget(self.progress_bar, 1)
+        
+        # 计时器
+        self.lbl_timer = QLabel("00:00", objectName="Timer")
+        self.lbl_timer.setVisible(False)
+        h_progress_layout.addWidget(self.lbl_timer)
+        
+        bottom_v_layout.addLayout(h_progress_layout)
 
         # 立即打包按钮移动到右侧布局的底部
         self.btn_run = QPushButton("立即打包", objectName="PrimaryBtn")
@@ -1732,6 +1955,20 @@ class MainWindow(QMainWindow):
     def tick(self):
         s = int(time.time() - self.start_ts)
         self.lbl_timer.setText(f"{s//60:02d}:{s%60:02d}")
+    
+    def _update_progress(self, value: int):
+        """更新进度条"""
+        self.progress_bar.setValue(value)
+        if value >= 100:
+            self.progress_bar.setFormat("100% - 完成!")
+        elif value >= 85:
+            self.progress_bar.setFormat(f"{value}% - 即将完成...")
+        elif value >= 40:
+            self.progress_bar.setFormat(f"{value}% - 编译中...")
+        elif value >= 10:
+            self.progress_bar.setFormat(f"{value}% - 分析模块...")
+        else:
+            self.progress_bar.setFormat(f"{value}% - 准备中...")
     def append_log(self, t):
         self.txt_log.append(t.strip())
         # 确保滚动到底部
@@ -1995,6 +2232,9 @@ class MainWindow(QMainWindow):
         self._is_packing = False
         self._current_runner = None
         self.timer.stop()
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setValue(0)
+        self.lbl_timer.setVisible(False)
         self._set_btn_to_normal_mode()
 
     def start(self):
@@ -2022,6 +2262,11 @@ class MainWindow(QMainWindow):
         self.lbl_timer.setVisible(True)
         self.timer.start(1000)
         self._pending_start_after_install = False
+        
+        # 显示并重置进度条
+        self.progress_bar.setValue(0)
+        self.progress_bar.setFormat("0% - 准备中...")
+        self.progress_bar.setVisible(True)
         
         # 设置按钮为取消模式
         self._set_btn_to_cancel_mode()
@@ -2069,14 +2314,18 @@ class MainWindow(QMainWindow):
             cmd, env = tool.get_cmd(tgt, out, nocon, icon, compress_mode)
             self.sig_log_bridge.emit(f"Run: {' '.join(cmd)}\n")
             
+            # 确定工具名称
+            tool_name = 'pyinstaller' if self.rb_pyi.isChecked() else 'nuitka'
+            
             # 创建 runner 并保存引用
-            runner = ToolRunner(cmd, env)
+            runner = ToolRunner(cmd, env, tool_name)
             self._current_runner = runner
             
             # 连接信号
             runner.signals.log.connect(self.sig_log_bridge.emit)
             runner.signals.finished.connect(self.sig_done.emit)
             runner.signals.cancelled.connect(self.sig_cancelled.emit)
+            runner.signals.progress.connect(self.sig_progress.emit)
             
             # 运行
             runner.run()
@@ -2107,7 +2356,7 @@ if __name__ == "__main__":
     # 之后再创建实例
     app = QApplication(sys.argv)
     app.setStyleSheet(STYLESHEET)
-    default_font = QFont("Segoe UI", 9)
+    default_font = QFont("Segoe UI", 9, QFont.Weight.Medium)
     app.setFont(default_font)
     w = MainWindow()
     w.show()
