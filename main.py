@@ -20,6 +20,8 @@ import time
 import ast # 导入 ast 模块
 import importlib.util
 import pkgutil
+import shutil
+import glob
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QLabel, QLineEdit, QPushButton, QRadioButton, 
                              QCheckBox, QTextEdit, QFileDialog, QComboBox, QSlider, 
@@ -41,181 +43,219 @@ except ImportError:
 # 全局样式表 (深度定制 - 紧凑商务风)
 # ===========================
 STYLESHEET = """
-    /* 全局设定 */
-    QMainWindow { background-color: #f0f0f0; }
-    QWidget { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; font-size: 13px; color: #333; }
+    /* 全局设定 - 简约大气的商务风格 */
+    QMainWindow {
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                    stop:0 #f5f7fa, stop:1 #e8ecf1);
+    }
+    QWidget {
+        font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
+        font-size: 13px;
+        color: #2c3e50;
+    }
 
-    /* 卡片容器 */
+    /* 卡片容器 - 精致阴影与圆角 */
     QFrame#Card {
         background-color: #ffffff;
-        border-radius: 10px;
-        border: 1px solid #e8e8e8; /* 更柔和的边框 */
+        border-radius: 12px;
+        border: none;
     }
 
-    /* 标题 */
+    /* 标题 - 更专业的排版 */
     QLabel#CardTitle {
-        font-weight: bold;
-        font-size: 14px;
-        color: #3f4f60; /* 柔和的标题颜色 */
-        padding-bottom: 5px;
+        font-weight: 600;
+        font-size: 15px;
+        color: #1a2332;
+        padding-bottom: 8px;
+        letter-spacing: 0.5px;
     }
 
-    /* 输入框 */
+    /* 输入框 - 极简商务风 */
     QLineEdit {
-        border: 1px solid #e0e0e0; /* 柔和的边框 */
-        border-radius: 6px;
-        padding: 8px 10px;
-        background-color: #ffffff; /* 保持白色背景 */
+        border: 1px solid #d8dde6;
+        border-radius: 8px;
+        padding: 10px 14px;
+        background-color: #f9fafb;
+        color: #2c3e50;
+        selection-background-color: #4a90e2;
     }
     QLineEdit:focus {
-        border: 1px solid #4a90e2; /* 与主色调一致 */
-        background-color: #fff;
+        border: 2px solid #4a90e2;
+        background-color: #ffffff;
+        padding: 9px 13px;
+    }
+    QLineEdit:read-only {
+        background-color: #f5f7fa;
+        color: #7f8c8d;
     }
 
-    /* 通用按钮 (浏览/选择) */
+    /* 通用按钮 - 现代扁平化 */
     QPushButton#GhostBtn {
-        background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #e0e0e0, stop:1 #d0d0d0);
-        border: 1px solid #c0c0c0;
-        border-radius: 6px;
-        color: #333;
-        padding: 7px 12px;
-        font-weight: 500;
+        background-color: transparent;
+        border: 2px solid #5d9cec;
+        border-radius: 8px;
+        color: #5d9cec;
+        padding: 9px 20px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
     }
     QPushButton#GhostBtn:hover {
-        background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #d0d0d0, stop:1 #c0c0c0);
-        border-color: #b0b0b0;
-        color: #222;
+        background-color: #5d9cec;
+        border-color: #5d9cec;
+        color: #ffffff;
+    }
+    QPushButton#GhostBtn:pressed {
+        background-color: #4a8dd9;
+        border-color: #4a8dd9;
     }
 
-    /* 编译器选择器 */
+    /* 编译器选择器 - 卡片式设计 */
     QRadioButton#CompilerBtn {
-        background-color: #f8f8f8;
-        border: 1px solid #dcdcdc;
-        border-radius: 8px;
-        padding: 10px 15px;
-        color: #555;
-        font-weight: bold;
+        background-color: #f8f9fb;
+        border: 2px solid #e4e7ed;
+        border-radius: 10px;
+        padding: 14px 18px;
+        color: #606266;
+        font-weight: 600;
         text-align: left;
     }
     QRadioButton#CompilerBtn::indicator { width: 0; height: 0; }
     QRadioButton#CompilerBtn:checked {
-        background-color: #e8f0fe;
-        border: 1px solid #4a90e2;
-        color: #4a90e2;
+        background-color: #ecf5ff;
+        border: 2px solid #5d9cec;
+        color: #5d9cec;
     }
     QRadioButton#CompilerBtn:hover {
-        border-color: #b0d0f0;
+        border-color: #a0cfff;
+        background-color: #f4f9ff;
     }
 
-    /* 环境选择 (Tab 样式) */
-    QRadioButton#TabBtn {
-        background-color: transparent;
-        border: none;
-        border-bottom: 2px solid transparent;
-        padding: 8px 20px;
-        color: #909399;
-        font-weight: 500;
-    }
-    QRadioButton#TabBtn::indicator { width: 0; height: 0; }
-    QRadioButton#TabBtn:checked {
-        color: #303133;
-        border-bottom: 2px solid #4a90e2; /* 与PrimaryBtn主色调保持一致 */
-        font-weight: bold;
-    }
-
-    /* 分段控制器 (Segmented Control) */
+    /* 分段控制器 - 精致的商务风格 */
     QFrame#SegmentedControlFrame {
-        border: 1px solid #dcdcdc; /* 整体边框 */
-        border-radius: 8px; /* 整体圆角 */
-        background-color: #f8f8f8; /* 整体背景 */
-        padding: 0px; /* 内部无填充 */
+        border: 2px solid #e4e7ed;
+        border-radius: 10px;
+        background-color: #f5f7fa;
+        padding: 2px;
     }
 
     QRadioButton#SegmentedControlBtn {
-        background-color: transparent; /* 默认透明背景 */
-        border: none; /* 移除默认边框 */
-        padding: 8px 20px;
-        color: #555;
+        background-color: transparent;
+        border: none;
+        padding: 10px 24px;
+        color: #606266;
         font-weight: 500;
-        min-width: 100px; /* 最小宽度 */
+        min-width: 100px;
     }
-    QRadioButton#SegmentedControlBtn::indicator {
-        width: 0;
-        height: 0;
-    }
+    QRadioButton#SegmentedControlBtn::indicator { width: 0; height: 0; }
     QRadioButton#SegmentedControlBtn:hover {
-        color: #3a80d2;
+        color: #4a90e2;
     }
     QRadioButton#SegmentedControlBtn:checked {
-        background-color: #4a90e2; /* 选中背景色 */
-        color: white; /* 选中字体颜色 */
-        border-radius: 7px; /* 内部圆角，比Frame小1px */
-        font-weight: bold;
-    }
-    /* 针对分段控制器中的第一个和最后一个按钮的特殊处理 */
-    QRadioButton#SegmentedControlBtn:first-of-type {
-        border-top-left-radius: 7px;
-        border-bottom-left-radius: 7px;
-    }
-    QRadioButton#SegmentedControlBtn:last-of-type {
-        border-top-right-radius: 7px;
-        border-bottom-right-radius: 7px;
+        background-color: #5d9cec;
+        color: white;
+        border-radius: 8px;
+        font-weight: 600;
     }
 
-    /* 立即打包大按钮 */
+    /* 立即打包大按钮 - 高级渐变 */
     QPushButton#PrimaryBtn {
-        background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4a90e2, stop:1 #6aafff);
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                    stop:0 #5d9cec, stop:1 #4fc3f7);
         border: none;
-        border-radius: 8px;
+        border-radius: 10px;
         color: white;
-        font-size: 16px;
-        font-weight: bold;
-        padding: 12px;
+        font-size: 17px;
+        font-weight: 600;
+        padding: 16px;
+        letter-spacing: 1px;
     }
-    QPushButton#PrimaryBtn:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #5a9ff2, stop:1 #7ac0ff); }
-    QPushButton#PrimaryBtn:pressed { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #3a80d2, stop:1 #5aa0ef); }
-    QPushButton#PrimaryBtn:disabled { background-color: #bdc3c7; }
+    QPushButton#PrimaryBtn:hover {
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                    stop:0 #6daef5, stop:1 #5fd4ff);
+    }
+    QPushButton#PrimaryBtn:pressed {
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                    stop:0 #4a8dd9, stop:1 #3eb3e5);
+    }
+    QPushButton#PrimaryBtn:disabled {
+        background: #d5dce6;
+        color: #b0b8c1;
+    }
 
     /* 成功按钮 */
     QPushButton#SuccessBtn {
-        background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2ecc71, stop:1 #27ae60);
-        border: none;
-        border-radius: 6px;
-        color: white;
-        font-weight: bold;
-        padding: 8px 20px;
-    }
-    QPushButton#SuccessBtn:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #3ede81, stop:1 #32be70); }
-
-    /* 滑动开关 (Toggle Switch) */
-    /* 底部日志 */
-    QTextEdit#LogArea {
-        background-color: #333333; /* 稍亮的深色背景，与整体更协调 */
-        color: #e0e0e0;
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                    stop:0 #52c41a, stop:1 #73d13d);
         border: none;
         border-radius: 8px;
-        font-family: Consolas, "Courier New", monospace;
+        color: white;
+        font-weight: 600;
+        padding: 10px 24px;
+        letter-spacing: 0.5px;
+    }
+    QPushButton#SuccessBtn:hover {
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                    stop:0 #6dd42a, stop:1 #8ee44d);
+    }
+    QPushButton#SuccessBtn:pressed {
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                    stop:0 #42b40a, stop:1 #63c42d);
+    }
+
+    /* 取消/危险按钮 */
+    QPushButton#DangerBtn {
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                    stop:0 #ed5565, stop:1 #da4453);
+        border: none;
+        border-radius: 10px;
+        color: white;
+        font-size: 17px;
+        font-weight: 600;
+        padding: 16px;
+        letter-spacing: 1px;
+    }
+    QPushButton#DangerBtn:hover {
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                    stop:0 #fc6575, stop:1 #ea5463);
+    }
+    QPushButton#DangerBtn:pressed {
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                    stop:0 #dc4555, stop:1 #ca3443);
+    }
+
+    /* 底部日志 - 专业终端风格 */
+    QTextEdit#LogArea {
+        background-color: #2c3e50;
+        color: #ecf0f1;
+        border: none;
+        border-radius: 10px;
+        font-family: "Consolas", "Monaco", "Courier New", monospace;
         font-size: 12px;
-        padding: 12px;
+        padding: 16px;
     }
     
-    /* 计时器 */
+    /* 计时器 - 优雅细腻 */
     QLabel#Timer {
-        font-size: 24px;
+        font-size: 28px;
         font-weight: 300;
-        color: #4a90e2; /* 与主色调一致 */
-        font-family: "Segoe UI Light";
+        color: #5d9cec;
+        font-family: "Segoe UI Light", "Microsoft YaHei UI Light";
+        letter-spacing: 2px;
     }
-    /* 下拉选择框 */
+    
+    /* 下拉选择框 - 现代设计 */
     QComboBox {
-        border: 1px solid #e0e0e0;
-        border-radius: 6px;
-        padding: 8px 10px;
-        background-color: #ffffff;
-        selection-background-color: #e0e0e0;
+        border: 1px solid #d8dde6;
+        border-radius: 8px;
+        padding: 10px 14px;
+        background-color: #f9fafb;
+        selection-background-color: #e8f4fd;
+        color: #2c3e50;
     }
     QComboBox:focus {
-        border: 1px solid #4a90e2;
+        border: 2px solid #5d9cec;
+        padding: 9px 13px;
+        background-color: #ffffff;
     }
     QComboBox::drop-down {
         border: none;
@@ -223,34 +263,136 @@ STYLESHEET = """
         width: 20px;
     }
     QComboBox::down-arrow {
-        image: url(none); /* 隐藏默认箭头 */
+        image: url(none);
+    }
+    QComboBox QAbstractItemView {
+        border: 1px solid #d8dde6;
+        border-radius: 8px;
+        background-color: #ffffff;
+        selection-background-color: #e8f4fd;
+        selection-color: #2c3e50;
+        padding: 4px;
     }
 
-    /* 滑块 */
+    /* 滑块 - 精致设计 */
     QSlider::groove:horizontal {
-        height: 6px;
-        background: #e0e0e0;
-        border-radius: 3px;
+        height: 4px;
+        background: #e4e7ed;
+        border-radius: 2px;
     }
     QSlider::handle:horizontal {
-        background: #4a90e2;
-        width: 16px;
-        height: 16px;
-        border-radius: 8px;
-        margin: -5px 0;
+        background: #5d9cec;
+        width: 18px;
+        height: 18px;
+        border-radius: 9px;
+        margin: -7px 0;
+        border: 2px solid #ffffff;
     }
     QSlider::handle:horizontal:hover {
-        background: #6aafff;
+        background: #4fc3f7;
+        width: 20px;
+        height: 20px;
+        margin: -8px 0;
     }
     QSlider::add-page:horizontal {
-        background: #c0c0c0;
+        background: #d5dce6;
+        border-radius: 2px;
     }
     QSlider::sub-page:horizontal {
-        background: #4a90e2;
+        background: #5d9cec;
+        border-radius: 2px;
     }
 """
 
 MINGW_DIR_NAME = "mingw64"
+
+# ===========================
+# 编译器后端检测
+# ===========================
+def detect_msvc():
+    """检测系统是否安装了 MSVC (Visual Studio)"""
+    try:
+        # 方法1: 检查 vswhere 工具
+        vswhere_paths = [
+            r"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe",
+            r"C:\Program Files\Microsoft Visual Studio\Installer\vswhere.exe",
+        ]
+        for vswhere in vswhere_paths:
+            if os.path.exists(vswhere):
+                result = subprocess.run(
+                    [vswhere, "-latest", "-property", "installationPath"],
+                    capture_output=True, text=True, timeout=10,
+                    startupinfo=_get_silent_startupinfo()
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    return True
+        
+        # 方法2: 检查环境变量
+        if os.environ.get("VCINSTALLDIR") or os.environ.get("VS140COMNTOOLS"):
+            return True
+        
+        # 方法3: 尝试运行 cl.exe
+        result = subprocess.run(
+            ["where", "cl.exe"],
+            capture_output=True, text=True, timeout=5,
+            startupinfo=_get_silent_startupinfo()
+        )
+        if result.returncode == 0:
+            return True
+            
+    except Exception:
+        pass
+    return False
+
+def detect_mingw():
+    """检测系统是否安装了 MinGW"""
+    try:
+        # 方法1: 检查内置的 MinGW
+        base = BASE_DIR
+        mingw_paths = [
+            os.path.join(base, "tools", MINGW_DIR_NAME, "mingw64", "bin", "gcc.exe"),
+            os.path.join(base, "tools", MINGW_DIR_NAME, "bin", "gcc.exe"),
+        ]
+        for p in mingw_paths:
+            if os.path.exists(p):
+                return "builtin", os.path.dirname(p)
+        
+        # 方法2: 检查系统 PATH 中的 MinGW
+        result = subprocess.run(
+            ["where", "gcc.exe"],
+            capture_output=True, text=True, timeout=5,
+            startupinfo=_get_silent_startupinfo()
+        )
+        if result.returncode == 0:
+            gcc_path = result.stdout.strip().split('\n')[0]
+            return "system", os.path.dirname(gcc_path)
+            
+    except Exception:
+        pass
+    return None, None
+
+def get_available_backends():
+    """获取可用的编译后端列表"""
+    backends = ["自动选择"]
+    
+    has_msvc = detect_msvc()
+    mingw_type, mingw_path = detect_mingw()
+    
+    if has_msvc:
+        backends.append("MSVC (Visual Studio)")
+    if mingw_type:
+        if mingw_type == "builtin":
+            backends.append("MinGW64 (内置)")
+        else:
+            backends.append("MinGW64 (系统)")
+    
+    # 总是添加这两个选项，让用户可以强制选择（即使需要下载）
+    if "MSVC (Visual Studio)" not in backends:
+        backends.append("MSVC (需要安装)")
+    if "MinGW64 (内置)" not in backends and "MinGW64 (系统)" not in backends:
+        backends.append("MinGW64 (需下载)")
+    
+    return backends, has_msvc, (mingw_type, mingw_path)
 
 # ===========================
 # 逻辑核心
@@ -398,11 +540,15 @@ class EnvManager:
             if signal: signal.emit(f"警告: 获取已安装包列表失败: {e}\n")
         return set()
 
+    # 清华大学 PyPI 镜像源
+    TSINGHUA_MIRROR = "https://pypi.tuna.tsinghua.edu.cn/simple"
+    
     def install_package(self, pkg, signal):
-        """安装指定的包，带超时和进度反馈"""
+        """安装指定的包，带超时和进度反馈，使用清华镜像源加速"""
         pip_pkg_name = self.PACKAGE_MAP.get(pkg, pkg)
-        cmd = [self.python_path, "-m", "pip", "install", pip_pkg_name]
-        signal.emit(f"安装依赖: {' '.join(cmd)}\n")
+        cmd = [self.python_path, "-m", "pip", "install", pip_pkg_name,
+               "-i", self.TSINGHUA_MIRROR, "--trusted-host", "pypi.tuna.tsinghua.edu.cn"]
+        signal.emit(f"安装依赖 (使用清华源): {' '.join(cmd)}\n")
         try:
             process = subprocess.Popen(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -522,46 +668,154 @@ class PyInstallerTool(BaseTool):
         return cmd, None
 
 class NuitkaTool(BaseTool):
-    def __init__(self, env): self.env = env; self.name = "Nuitka"; self.module_name = "nuitka"
+    # GUI 框架检测映射
+    # 注意：PySide6 对 Nuitka 的支持比 PyQt6 更好，建议优先使用 PySide6
+    GUI_FRAMEWORKS = {
+        'PyQt6': {'plugin': 'pyqt6', 'qt_plugins': 'sensible,styles,platforms', 'package': 'PyQt6', 'warning': 'PyQt6 在 Nuitka 中的支持不完美（如 Qt 线程问题），建议改用 PySide6'},
+        'PyQt5': {'plugin': 'pyqt5', 'qt_plugins': 'sensible,styles,platforms', 'package': 'PyQt5'},
+        'PySide6': {'plugin': 'pyside6', 'qt_plugins': 'sensible,styles,platforms', 'package': 'PySide6', 'preferred': True},
+        'PySide2': {'plugin': 'pyside2', 'qt_plugins': 'sensible,styles,platforms', 'package': 'PySide2'},
+        'tkinter': {'plugin': 'tk-inter', 'package': 'tkinter'},
+        'wx': {'plugin': 'wx', 'package': 'wx'},
+    }
+    
+    def __init__(self, env, backend_choice=0, parallel_jobs=None):
+        self.env = env
+        self.name = "Nuitka"
+        self.module_name = "nuitka"
+        self.backend_choice = backend_choice  # 0=自动, 1=MSVC, 2=MinGW
+        self.parallel_jobs = parallel_jobs  # 并行编译任务数
+    
+    def set_backend(self, choice):
+        """设置编译后端选择"""
+        self.backend_choice = choice
+    
+    def _get_cpu_count(self):
+        """获取 CPU 核心数"""
+        try:
+            import multiprocessing
+            return multiprocessing.cpu_count()
+        except Exception:
+            return 4  # 默认 4 核
+    
+    def _detect_gui_frameworks(self, target, signal=None):
+        """检测目标脚本使用的 GUI 框架"""
+        detected = []
+        try:
+            with open(target, "r", encoding="utf-8") as f:
+                content = f.read()
+            tree = ast.parse(content, filename=target)
+            
+            imports = set()
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        imports.add(alias.name.split('.')[0])
+                elif isinstance(node, ast.ImportFrom):
+                    if node.module:
+                        imports.add(node.module.split('.')[0])
+            
+            for framework in self.GUI_FRAMEWORKS.keys():
+                if framework in imports:
+                    detected.append(framework)
+                    # 如果检测到框架有警告信息，输出到日志
+                    config = self.GUI_FRAMEWORKS[framework]
+                    if signal and 'warning' in config:
+                        signal.emit(f"⚠️  {config['warning']}\n")
+        except Exception:
+            pass
+        return detected
+    
     def get_cmd(self, target, out, nocon, icon, compress_mode):
         """
         compress_mode: 0=双层压缩, 1=仅内压缩, 2=仅UPX, 3=不压缩
         """
-        # 1. 定位 MinGW
-        base = BASE_DIR
-        mingw = os.path.join(base, "tools", MINGW_DIR_NAME, "mingw64", "bin")
-        if not os.path.exists(mingw):
-            mingw = os.path.join(base, "tools", MINGW_DIR_NAME, "bin")
-        
-        # 2. 注入环境变量
         env = os.environ.copy()
-        if os.path.exists(mingw):
-            env["PATH"] = mingw + os.pathsep + env["PATH"]
+        
+        # 1. 根据用户选择确定编译后端
+        use_msvc = False
+        use_mingw = False
+        mingw_path = None
+        
+        if self.backend_choice == 0:  # 自动选择
+            # 优先使用 MSVC（如果已安装），其次使用 MinGW
+            if detect_msvc():
+                use_msvc = True
+            else:
+                mingw_type, mingw_path = detect_mingw()
+                if mingw_type:
+                    use_mingw = True
+                else:
+                    # 都没有，让 Nuitka 自动处理（可能会下载）
+                    use_mingw = True  # 默认使用 MinGW
+        elif self.backend_choice == 1:  # MSVC
+            use_msvc = True
+        else:  # MinGW
+            use_mingw = True
+            _, mingw_path = detect_mingw()
+        
+        # 2. 如果使用 MinGW 且有路径，注入环境变量
+        if use_mingw and mingw_path and os.path.exists(mingw_path):
+            env["PATH"] = mingw_path + os.pathsep + env["PATH"]
             
         # 3. 准备输出
         if not os.path.exists(out): os.makedirs(out)
         
-        # 4. 构建命令 (修复版)
+        # 4. 计算并行编译任务数
+        jobs = self.parallel_jobs if self.parallel_jobs else self._get_cpu_count()
+        
+        # 5. 自动检测 GUI 框架（传入 signal 以便输出警告）
+        detected_guis = self._detect_gui_frameworks(target)
+        
+        # 6. 构建命令
         cmd = [
             self.env.python_path,
             "-m", "nuitka",
             "--standalone",
             "--onefile",
             
-            # --- 修复核心: 启用 PyQt6 插件 ---
-            "--enable-plugin=pyqt6",
-            "--include-qt-plugins=sensible,styles,platforms",
-            "--include-package=PyQt6",
-            "--enable-plugin=tk-inter",
+            # --- 性能优化：并行编译 ---
+            f"--jobs={jobs}",
+            
+            # --- 排除不需要的测试模块以减小体积和加快打包速度 ---
+            "--nofollow-import-to=pytest",
+            "--nofollow-import-to=unittest",
+            "--nofollow-import-to=_pytest",
+            "--nofollow-import-to=hypothesis",
             
             "--assume-yes-for-downloads",
             "--remove-output",
             f"--output-dir={out}",
             target
         ]
+        
+        # 7. 根据检测到的 GUI 框架动态添加插件
+        for gui in detected_guis:
+            if gui in self.GUI_FRAMEWORKS:
+                config = self.GUI_FRAMEWORKS[gui]
+                plugin_arg = f"--enable-plugin={config['plugin']}"
+                if plugin_arg not in cmd:
+                    cmd.insert(cmd.index("--assume-yes-for-downloads"), plugin_arg)
+                
+                # Qt 框架需要额外的插件配置
+                if 'qt_plugins' in config:
+                    qt_arg = f"--include-qt-plugins={config['qt_plugins']}"
+                    if qt_arg not in cmd:
+                        cmd.insert(cmd.index("--assume-yes-for-downloads"), qt_arg)
+                    pkg_arg = f"--include-package={config['package']}"
+                    if pkg_arg not in cmd:
+                        cmd.insert(cmd.index("--assume-yes-for-downloads"), pkg_arg)
+        
+        # 8. 如果没有检测到 tkinter，则排除它以加快打包速度
+        if 'tkinter' not in detected_guis:
+            cmd.insert(cmd.index("--assume-yes-for-downloads"), "--nofollow-import-to=tkinter")
 
-        # --- 修复核心: 强制 MinGW ---
-        cmd.append("--mingw64")
+        # 7. 添加编译后端参数
+        if use_msvc:
+            cmd.append("--msvc=latest")
+        elif use_mingw:
+            cmd.append("--mingw64")
+        # 如果都不指定，让 Nuitka 自动选择
 
         # 控制台
         if nocon:
@@ -595,20 +849,87 @@ class NuitkaTool(BaseTool):
             
         return cmd, env
 
-class WorkerSignals(QObject): log = pyqtSignal(str); finished = pyqtSignal(bool)
+class WorkerSignals(QObject):
+    log = pyqtSignal(str)
+    finished = pyqtSignal(bool)
+    cancelled = pyqtSignal()  # 新增：取消信号
+
+
 class ToolRunner(QObject):
-    def __init__(self, cmd, env): super().__init__(); self.cmd = cmd; self.env = env; self.signals = WorkerSignals()
+    def __init__(self, cmd, env):
+        super().__init__()
+        self.cmd = cmd
+        self.env = env
+        self.signals = WorkerSignals()
+        self._process = None
+        self._cancelled = False
+    
+    @property
+    def is_running(self):
+        """检查进程是否正在运行"""
+        return self._process is not None and self._process.poll() is None
+    
+    def terminate(self):
+        """终止打包进程"""
+        self._cancelled = True
+        if self._process is not None:
+            try:
+                # 在 Windows 上终止进程树
+                if sys.platform == "win32":
+                    # 使用 taskkill 终止进程树
+                    subprocess.run(
+                        ["taskkill", "/F", "/T", "/PID", str(self._process.pid)],
+                        capture_output=True,
+                        startupinfo=_get_silent_startupinfo()
+                    )
+                else:
+                    # Unix 系统使用 SIGTERM
+                    import signal
+                    os.killpg(os.getpgid(self._process.pid), signal.SIGTERM)
+                self._process = None
+                self.signals.cancelled.emit()
+                return True
+            except Exception as e:
+                self.signals.log.emit(f"终止进程时出错: {e}\n")
+                return False
+        return False
+    
     def run(self):
         try:
             startupinfo = None
             if sys.platform == "win32":
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            p = subprocess.Popen(self.cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, universal_newlines=True, startupinfo=startupinfo, env=self.env)
-            for l in p.stdout: self.signals.log.emit(l)
-            p.wait()
-            self.signals.finished.emit(p.returncode == 0)
-        except Exception as e: self.signals.log.emit(str(e)); self.signals.finished.emit(False)
+            
+            self._process = subprocess.Popen(
+                self.cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                universal_newlines=True,
+                startupinfo=startupinfo,
+                env=self.env
+            )
+            
+            # 逐行读取输出
+            for line in self._process.stdout:
+                if self._cancelled:
+                    break
+                self.signals.log.emit(line)
+            
+            self._process.wait()
+            
+            if self._cancelled:
+                self.signals.log.emit("打包已被用户取消\n")
+                self.signals.cancelled.emit()
+            else:
+                self.signals.finished.emit(self._process.returncode == 0)
+                
+        except Exception as e:
+            if not self._cancelled:
+                self.signals.log.emit(str(e))
+                self.signals.finished.emit(False)
 
 
 # ===========================
@@ -737,7 +1058,9 @@ class Card(QFrame):
         super().__init__(parent)
         self.setObjectName("Card")
         shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(15); shadow.setColor(QColor(0, 0, 0, 10)); shadow.setOffset(0, 2)
+        shadow.setBlurRadius(20)
+        shadow.setColor(QColor(0, 0, 0, 25))
+        shadow.setOffset(0, 4)
         self.setGraphicsEffect(shadow)
 
 class ToggleSwitch(QWidget):
@@ -756,9 +1079,9 @@ class ToggleSwitch(QWidget):
 
         
 
-        # 颜色可自定义
-        self._track_off_color = "#c5c5c5"
-        self._track_on_color  = "#1890FF" # 调整为蓝色
+        # 颜色 - 商务风配色
+        self._track_off_color = "#d5dce6"
+        self._track_on_color  = "#5d9cec"
         self._thumb_color     = "#ffffff"
 
         # 动画
@@ -830,10 +1153,10 @@ class IconDialog(QDialog):
         self.setWindowTitle("图标工作台")
         self.setFixedSize(650, 400)
         self.callback = callback; self.default_dir = default_dir; self.img_path = None; self.zoom = 1.0
-        # self.setStyleSheet("background-color: #f0f0f0;") # 移除此行，让其继承全局样式
+        
         layout = QHBoxLayout(self)
         self.lbl_prev = QLabel("暂无图片"); self.lbl_prev.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_prev.setStyleSheet("background: #ffffff; border-radius: 8px; border: 1px solid #e8e8e8; color: #999; font-size: 13px;")
+        self.lbl_prev.setStyleSheet("background: #ffffff; border-radius: 10px; border: 1px solid #e4e7ed; color: #95a5a6; font-size: 13px;")
         layout.addWidget(self.lbl_prev, 5)
         ctrl = QVBoxLayout()
         btn_open = QPushButton("打开图片"); btn_open.clicked.connect(self.load); btn_open.setObjectName("GhostBtn")
@@ -845,7 +1168,12 @@ class IconDialog(QDialog):
         self.sld = QSlider(Qt.Orientation.Horizontal, objectName="IconZoomSlider"); self.sld.setRange(50,200); self.sld.setValue(100); self.sld.valueChanged.connect(self.slide)
         ctrl.addWidget(self.sld)
         ctrl.addStretch()
-        btn_ok = QPushButton("✅ 生成并使用"); btn_ok.setObjectName("SuccessBtn"); btn_ok.setCursor(QCursor(Qt.CursorShape.PointingHandCursor)); btn_ok.clicked.connect(self.apply)
+        btn_ok = QPushButton("✅ 生成并使用")
+        btn_ok.setObjectName("SuccessBtn")
+        btn_ok.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        btn_ok.clicked.connect(self.apply)
+        # 确保按钮应用正确的样式
+        btn_ok.setStyle(btn_ok.style())
         ctrl.addWidget(btn_ok)
         layout.addLayout(ctrl, 3)
 
@@ -1027,6 +1355,7 @@ class DependencySelectionDialog(QDialog):
 class MainWindow(QMainWindow):
     sig_log_bridge = pyqtSignal(str) # 将信号定义为类属性
     sig_done = pyqtSignal(bool) # 定义结束信号
+    sig_cancelled = pyqtSignal()  # 新增：打包取消信号
     sig_dep_check_done = pyqtSignal(list)  # 依赖检查完成信号
     sig_dep_install_done = pyqtSignal(list)  # 依赖安装完成信号
 
@@ -1043,6 +1372,10 @@ class MainWindow(QMainWindow):
         self._dep_install_thread = None
         self._pending_start_after_install = False  # 是否在安装完成后启动打包
         
+        # 打包进程相关
+        self._current_runner = None  # 当前运行的 ToolRunner
+        self._is_packing = False  # 是否正在打包
+        
         # 自动加载 name.png 图标
         icon_path = os.path.join(BASE_DIR, "name.png")
         if os.path.exists(icon_path):
@@ -1051,6 +1384,7 @@ class MainWindow(QMainWindow):
         self.timer = QTimer(); self.timer.timeout.connect(self.tick); self.start_ts = 0
         self.sig_log_bridge.connect(self.append_log) # 连接信号到日志追加方法
         self.sig_done.connect(self.done) # 连接信号到处理函数
+        self.sig_cancelled.connect(self._on_cancelled)  # 连接取消信号
         self.sig_dep_check_done.connect(self._on_dep_check_done)  # 连接依赖检查完成信号
         self.sig_dep_install_done.connect(self._on_dep_install_done)  # 连接依赖安装完成信号
         self.init_ui()
@@ -1059,23 +1393,23 @@ class MainWindow(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         main_h_layout = QHBoxLayout() # 主水平布局
-        main_h_layout.setContentsMargins(20, 20, 20, 20)
-        main_h_layout.setSpacing(12)
+        main_h_layout.setContentsMargins(24, 24, 24, 20)
+        main_h_layout.setSpacing(16)
 
         left_v_layout = QVBoxLayout() # 左侧垂直布局
         left_v_layout.setContentsMargins(0, 0, 0, 0)
-        left_v_layout.setSpacing(12)
+        left_v_layout.setSpacing(16)
 
         right_v_layout = QVBoxLayout() # 右侧垂直布局
         right_v_layout.setContentsMargins(0, 0, 0, 0)
-        right_v_layout.setSpacing(12)
+        right_v_layout.setSpacing(16)
         
         main_h_layout.addLayout(left_v_layout, 1) # 左侧占据1份空间
         main_h_layout.addLayout(right_v_layout, 1) # 右侧占据1份空间
 
         bottom_v_layout = QVBoxLayout() # 底部垂直布局 (用于操作区和日志)
-        bottom_v_layout.setContentsMargins(20, 0, 20, 20) # 调整底部边距
-        bottom_v_layout.setSpacing(12)
+        bottom_v_layout.setContentsMargins(24, 0, 24, 24) # 调整底部边距
+        bottom_v_layout.setSpacing(16)
 
         layout = QVBoxLayout(central) # 整体垂直布局
         layout.setContentsMargins(0, 0, 0, 0)
@@ -1086,7 +1420,7 @@ class MainWindow(QMainWindow):
         # 1. 入口文件
         card_file = QFrame(objectName="Card")
         l_file = QVBoxLayout(card_file)
-        l_file.setContentsMargins(10, 10, 10, 10)
+        l_file.setContentsMargins(18, 16, 18, 18)
         l_file.addWidget(QLabel("入口文件", objectName="CardTitle"))
         h_file = QHBoxLayout()
         self.txt_file = QLineEdit()
@@ -1100,7 +1434,7 @@ class MainWindow(QMainWindow):
         # 2. 环境
         card_env = QFrame(objectName="Card")
         l_env = QVBoxLayout(card_env)
-        l_env.setContentsMargins(10, 10, 10, 10)
+        l_env.setContentsMargins(18, 16, 18, 18)
         l_env.addWidget(QLabel("编译环境", objectName="CardTitle"))
         
         # 分段控制器布局
@@ -1128,14 +1462,14 @@ class MainWindow(QMainWindow):
 
         # 路径显示框
         bg_path = QFrame()
-        bg_path.setStyleSheet("background: #f8f9fa; border-radius: 6px; padding: 8px;")
+        bg_path.setStyleSheet("background: #f5f7fa; border-radius: 8px; padding: 12px; border: 1px solid #e4e7ed;")
         
         l_path = QHBoxLayout(bg_path)
-        l_path.setContentsMargins(5, 0, 5, 0) # 保持与原设计一致的内边距
+        l_path.setContentsMargins(8, 0, 8, 0)
 
         initial_python_version = self.env_mgr.get_python_version()
         self.lbl_env = QLabel(f"{self.env_mgr.python_path} ({initial_python_version})")
-        self.lbl_env.setStyleSheet("color: #606266; font-family: Consolas; font-size: 12px;")
+        self.lbl_env.setStyleSheet("color: #5a6c7d; font-family: 'Consolas', 'Monaco', monospace; font-size: 11.5px;")
         
         l_path.addWidget(self.lbl_env)
         l_path.addStretch()
@@ -1146,7 +1480,7 @@ class MainWindow(QMainWindow):
         # 3. 资源
         card_res = QFrame(objectName="Card")
         l_res = QVBoxLayout(card_res)
-        l_res.setContentsMargins(10, 10, 10, 10)
+        l_res.setContentsMargins(18, 16, 18, 18)
         l_res.addWidget(QLabel("资源与输出", objectName="CardTitle"))
         h_out = QHBoxLayout()
         lbl_out = QLabel("输出位置:"); lbl_out.setFixedWidth(70)
@@ -1166,13 +1500,13 @@ class MainWindow(QMainWindow):
         # 4. 选项
         card_opt = QFrame(objectName="Card")
         l_opt = QVBoxLayout(card_opt)
-        l_opt.setContentsMargins(10, 10, 10, 10)
+        l_opt.setContentsMargins(18, 16, 18, 18)
         l_opt.addWidget(QLabel("构建选项", objectName="CardTitle"))
         
         # 依赖管理区域
         card_dep = QFrame(objectName="Card")
         l_dep = QVBoxLayout(card_dep)
-        l_dep.setContentsMargins(10, 10, 10, 10)
+        l_dep.setContentsMargins(16, 14, 16, 16)
         l_dep.addWidget(QLabel("依赖管理", objectName="CardTitle"))
 
         h_dep_check = QHBoxLayout()
@@ -1213,17 +1547,79 @@ class MainWindow(QMainWindow):
         lbl_compress = QLabel("压缩方式:")
         self.cmb_compress = QComboBox()
         self.cmb_compress.addItems(["双层压缩", "仅内压缩", "仅UPX", "不压缩"])
-        self.cmb_compress.setCurrentIndex(0)  # 默认双层压缩
+        self.cmb_compress.setCurrentIndex(3)  # 默认不压缩（速度最快）
         self.cmb_compress.setToolTip(
-            "双层压缩：内压缩 + UPX压缩（体积最小）\n"
-            "仅内压缩：仅使用打包工具自带压缩\n"
-            "仅UPX：仅使用UPX压缩\n"
-            "不压缩：不进行任何压缩（体积最大）"
+            "双层压缩：内压缩 + UPX压缩（体积最小，速度最慢，可能需要10分钟以上）\n"
+            "仅内压缩：仅使用 zstandard 压缩（体积较小，但压缩 Qt 库很慢）\n"
+            "仅UPX：仅使用UPX压缩（速度较慢）\n"
+            "不压缩：不进行任何压缩（速度最快，推荐开发调试时使用）"
         )
         h_compress.addWidget(lbl_compress)
         h_compress.addWidget(self.cmb_compress)
         h_compress.addStretch()
         v_right_column.addLayout(h_compress)
+        
+        # 编译后端选择（仅 Nuitka 使用）
+        h_backend = QHBoxLayout()
+        lbl_backend = QLabel("编译后端:")
+        self.cmb_backend = QComboBox()
+        self._update_backend_options()  # 初始化可用后端
+        self.cmb_backend.setToolTip(
+            "自动选择：优先使用 MSVC（如已安装），否则使用 MinGW\n"
+            "MSVC：使用 Visual Studio 编译器（需安装 VS）\n"
+            "MinGW64：使用 GCC 编译器（内置或需下载）\n\n"
+            "提示：使用 MSVC 可避免下载 MinGW，编译速度更快"
+        )
+        h_backend.addWidget(lbl_backend)
+        h_backend.addWidget(self.cmb_backend)
+        h_backend.addStretch()
+        v_right_column.addLayout(h_backend)
+        
+        # 并行编译任务数设置
+        h_jobs = QHBoxLayout()
+        lbl_jobs = QLabel("并行任务:")
+        self.cmb_jobs = QComboBox()
+        # 获取 CPU 核心数并设置选项
+        try:
+            import multiprocessing
+            cpu_count = multiprocessing.cpu_count()
+        except Exception:
+            cpu_count = 4
+        self.cmb_jobs.addItem("自动", 0)  # 0 表示自动
+        for i in [1, 2, 4, 6, 8, 12, 16]:
+            if i <= cpu_count * 2:  # 最多显示到 CPU 核心数的 2 倍
+                self.cmb_jobs.addItem(str(i), i)
+        self.cmb_jobs.setCurrentIndex(0)  # 默认自动
+        self.cmb_jobs.setToolTip(
+            f"并行编译任务数（检测到 {cpu_count} 个 CPU 核心）\n"
+            "自动：使用所有 CPU 核心\n"
+            "数字越大编译越快，但占用更多内存\n"
+            "建议：CPU 核心数或稍多一点"
+        )
+        h_jobs.addWidget(lbl_jobs)
+        h_jobs.addWidget(self.cmb_jobs)
+        h_jobs.addStretch()
+        v_right_column.addLayout(h_jobs)
+        
+        # GUI 框架自动检测提示
+        h_gui_hint = QHBoxLayout()
+        lbl_gui_hint = QLabel("💡 GUI框架自动检测")
+        lbl_gui_hint.setStyleSheet("color: #909399; font-size: 11px;")
+        lbl_gui_hint.setToolTip(
+            "自动检测目标脚本使用的 GUI 框架\n"
+            "支持: PyQt6, PyQt5, PySide6, PySide2, tkinter, wxPython\n"
+            "无需手动配置，未使用的框架会自动排除以加快打包速度\n\n"
+            "⚠️ 重要提示：\n"
+            "Nuitka 对 PySide6 的支持优于 PyQt6\n"
+            "如果使用 PyQt6 遇到问题（如线程不工作），建议切换到 PySide6"
+        )
+        h_gui_hint.addWidget(lbl_gui_hint)
+        h_gui_hint.addStretch()
+        v_right_column.addLayout(h_gui_hint)
+        
+        # 编译器切换时更新后端选项的可见性
+        self.rb_nuitka.toggled.connect(self._on_compiler_changed)
+        self.rb_pyi.toggled.connect(self._on_compiler_changed)
         v_right_column.addStretch() # 确保右侧内容向上对齐
 
         h_opt_main.addLayout(v_left_column)
@@ -1245,15 +1641,52 @@ class MainWindow(QMainWindow):
         # 立即打包按钮移动到右侧布局的底部
         self.btn_run = QPushButton("立即打包", objectName="PrimaryBtn")
         self.btn_run.setCursor(Qt.CursorShape.PointingHandCursor)
-        shadow = QGraphicsDropShadowEffect(); shadow.setBlurRadius(15); shadow.setColor(QColor(41, 128, 185, 60)); shadow.setOffset(0, 4)
-        self.btn_run.setGraphicsEffect(shadow)
-        self.btn_run.clicked.connect(self.start)
+        self._btn_run_shadow = QGraphicsDropShadowEffect()
+        self._btn_run_shadow.setBlurRadius(20)
+        self._btn_run_shadow.setColor(QColor(93, 156, 236, 80))
+        self._btn_run_shadow.setOffset(0, 6)
+        self.btn_run.setGraphicsEffect(self._btn_run_shadow)
+        self.btn_run.clicked.connect(self._on_btn_run_clicked)
         right_v_layout.addStretch() # 在按钮上方添加一个拉伸器，使其居底
         right_v_layout.addWidget(self.btn_run)
 
         # 6. 日志
-        self.txt_log = QTextEdit(objectName="LogArea"); self.txt_log.setPlaceholderText("Ready..."); self.txt_log.setFixedHeight(120); self.txt_log.setReadOnly(True)
+        self.txt_log = QTextEdit(objectName="LogArea"); self.txt_log.setPlaceholderText("Ready..."); self.txt_log.setMinimumHeight(150); self.txt_log.setMaximumHeight(300); self.txt_log.setReadOnly(True)
         bottom_v_layout.addWidget(self.txt_log)
+
+    def _update_backend_options(self):
+        """更新编译后端选项"""
+        self.cmb_backend.clear()
+        backends, has_msvc, (mingw_type, mingw_path) = get_available_backends()
+        self.cmb_backend.addItems(backends)
+        
+        # 更新工具提示以显示检测结果
+        status_lines = ["编译器检测结果:"]
+        if has_msvc:
+            status_lines.append("✓ MSVC (Visual Studio) - 已安装")
+        else:
+            status_lines.append("✗ MSVC (Visual Studio) - 未安装")
+        
+        if mingw_type == "builtin":
+            status_lines.append(f"✓ MinGW64 (内置) - {mingw_path}")
+        elif mingw_type == "system":
+            status_lines.append(f"✓ MinGW64 (系统) - {mingw_path}")
+        else:
+            status_lines.append("✗ MinGW64 - 未找到（选择时会自动下载）")
+        
+        status_lines.append("")
+        status_lines.append("自动选择：优先 MSVC，其次 MinGW")
+        status_lines.append("提示：使用 MSVC 可避免下载 MinGW")
+        
+        self.cmb_backend.setToolTip("\n".join(status_lines))
+    
+    def _on_compiler_changed(self):
+        """编译器选择变化时的处理"""
+        is_nuitka = self.rb_nuitka.isChecked()
+        # 只有 Nuitka 才显示编译后端选项
+        self.cmb_backend.setEnabled(is_nuitka)
+        if is_nuitka:
+            self._update_backend_options()  # 刷新检测结果
 
     # 逻辑部分
     def sel_file(self):
@@ -1299,7 +1732,11 @@ class MainWindow(QMainWindow):
     def tick(self):
         s = int(time.time() - self.start_ts)
         self.lbl_timer.setText(f"{s//60:02d}:{s%60:02d}")
-    def append_log(self, t): self.txt_log.append(t.strip()); self.txt_log.verticalScrollBar().setValue(100000)
+    def append_log(self, t):
+        self.txt_log.append(t.strip())
+        # 确保滚动到底部
+        scrollbar = self.txt_log.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
     # sig_log_bridge = pyqtSignal(str) # 移除此处，已在 __init__ 中定义
     def check_and_install_dependencies(self):
         """手动检查并安装依赖（使用后台线程）"""
@@ -1419,6 +1856,147 @@ class MainWindow(QMainWindow):
                 self.btn_run.setEnabled(True)
 
 
+    def _on_btn_run_clicked(self):
+        """处理打包按钮点击事件"""
+        if self._is_packing:
+            # 正在打包，执行取消操作
+            self.cancel_packing()
+        else:
+            # 未在打包，执行开始操作
+            self.start()
+    
+    def _set_btn_to_cancel_mode(self):
+        """将按钮设置为取消模式"""
+        self.btn_run.setText("⏹ 取消打包")
+        self.btn_run.setObjectName("DangerBtn")
+        self.btn_run.setStyle(self.btn_run.style())  # 刷新样式
+        self._btn_run_shadow.setColor(QColor(237, 85, 101, 80))  # 红色阴影
+        self.btn_run.setEnabled(True)
+    
+    def _set_btn_to_normal_mode(self):
+        """将按钮恢复为正常模式"""
+        self.btn_run.setText("立即打包")
+        self.btn_run.setObjectName("PrimaryBtn")
+        self.btn_run.setStyle(self.btn_run.style())  # 刷新样式
+        self._btn_run_shadow.setColor(QColor(93, 156, 236, 80))  # 蓝色阴影
+        self.btn_run.setEnabled(True)
+    
+    def cancel_packing(self):
+        """取消打包操作"""
+        if self._current_runner and self._current_runner.is_running:
+            self.sig_log_bridge.emit("\n⚠️ 正在终止打包进程...\n")
+            self.btn_run.setEnabled(False)
+            self.btn_run.setText("正在取消...")
+            if self._current_runner.terminate():
+                self.sig_log_bridge.emit("✓ 打包进程已终止\n")
+                # 清理临时文件
+                self._cleanup_temp_files()
+                # 重置状态（停止计时器、恢复按钮）
+                self._reset_after_packing()
+            else:
+                self.sig_log_bridge.emit("✗ 终止进程失败，请手动结束\n")
+                self._reset_after_packing()
+        else:
+            self.sig_log_bridge.emit("没有正在运行的打包进程\n")
+            self._reset_after_packing()
+    
+    def _cleanup_temp_files(self):
+        """清理打包产生的临时文件"""
+        out_dir = self.txt_out.text()
+        entry_file = self.txt_file.text()
+        
+        self.sig_log_bridge.emit("正在清理临时文件...\n")
+        cleaned_count = 0
+        
+        try:
+            # 获取入口文件名（不含扩展名）
+            if entry_file:
+                base_name = os.path.splitext(os.path.basename(entry_file))[0]
+                source_dir = os.path.dirname(entry_file)
+            else:
+                base_name = None
+                source_dir = None
+            
+            # 需要检查的目录列表
+            dirs_to_check = []
+            if out_dir and os.path.exists(out_dir):
+                dirs_to_check.append(out_dir)
+            if source_dir and os.path.exists(source_dir) and source_dir != out_dir:
+                dirs_to_check.append(source_dir)
+            
+            if not dirs_to_check:
+                self.sig_log_bridge.emit("没有找到可检查的目录，跳过清理\n")
+                return
+            
+            for check_dir in dirs_to_check:
+                # 清理 PyInstaller 临时文件
+                # 1. build_temp 目录
+                build_temp = os.path.join(check_dir, "build_temp")
+                if os.path.exists(build_temp):
+                    shutil.rmtree(build_temp, ignore_errors=True)
+                    self.sig_log_bridge.emit(f"  已删除: {build_temp}\n")
+                    cleaned_count += 1
+                
+                # 2. .spec 文件
+                for spec_file in glob.glob(os.path.join(check_dir, "*.spec")):
+                    try:
+                        os.remove(spec_file)
+                        self.sig_log_bridge.emit(f"  已删除: {spec_file}\n")
+                        cleaned_count += 1
+                    except Exception:
+                        pass
+                
+                # 清理 Nuitka 临时文件
+                if base_name:
+                    # 1. *.build 目录
+                    build_dir = os.path.join(check_dir, f"{base_name}.build")
+                    if os.path.exists(build_dir):
+                        shutil.rmtree(build_dir, ignore_errors=True)
+                        self.sig_log_bridge.emit(f"  已删除: {build_dir}\n")
+                        cleaned_count += 1
+                    
+                    # 2. *.onefile-build 目录
+                    onefile_build = os.path.join(check_dir, f"{base_name}.onefile-build")
+                    if os.path.exists(onefile_build):
+                        shutil.rmtree(onefile_build, ignore_errors=True)
+                        self.sig_log_bridge.emit(f"  已删除: {onefile_build}\n")
+                        cleaned_count += 1
+                    
+                    # 3. *.dist 目录
+                    dist_dir = os.path.join(check_dir, f"{base_name}.dist")
+                    if os.path.exists(dist_dir):
+                        shutil.rmtree(dist_dir, ignore_errors=True)
+                        self.sig_log_bridge.emit(f"  已删除: {dist_dir}\n")
+                        cleaned_count += 1
+                
+                # 通用清理：查找所有 .build 和 .onefile-build 目录
+                for pattern in ["*.build", "*.onefile-build", "*.dist"]:
+                    for path in glob.glob(os.path.join(check_dir, pattern)):
+                        if os.path.isdir(path):
+                            shutil.rmtree(path, ignore_errors=True)
+                            self.sig_log_bridge.emit(f"  已删除: {path}\n")
+                            cleaned_count += 1
+            
+            if cleaned_count > 0:
+                self.sig_log_bridge.emit(f"✓ 已清理 {cleaned_count} 个临时文件/目录\n")
+            else:
+                self.sig_log_bridge.emit("没有找到需要清理的临时文件（可能打包进程在生成文件前已终止）\n")
+                
+        except Exception as e:
+            self.sig_log_bridge.emit(f"清理临时文件时出错: {e}\n")
+    
+    def _on_cancelled(self):
+        """打包被取消后的处理"""
+        self._reset_after_packing()
+        self.sig_log_bridge.emit("打包已取消\n")
+    
+    def _reset_after_packing(self):
+        """打包结束后重置状态"""
+        self._is_packing = False
+        self._current_runner = None
+        self.timer.stop()
+        self._set_btn_to_normal_mode()
+
     def start(self):
         """开始打包流程"""
         tgt = self.txt_file.text()
@@ -1438,42 +2016,87 @@ class MainWindow(QMainWindow):
     
     def _do_start_packing(self):
         """实际执行打包操作"""
-        self.btn_run.setEnabled(False)
-        self.btn_run.setText("打包构建中...")
+        self._is_packing = True
         self.txt_log.clear()
         self.start_ts = time.time()
         self.lbl_timer.setVisible(True)
         self.timer.start(1000)
         self._pending_start_after_install = False
+        
+        # 设置按钮为取消模式
+        self._set_btn_to_cancel_mode()
+        
         threading.Thread(target=self.worker, daemon=True).start()
 
     def worker(self):
-        # self.sig_log_bridge.connect(self.append_log) # 信号连接已在 __init__ 中完成，无需重复
         try:
-            tgt = self.txt_file.text(); out = self.txt_out.text(); icon = self.txt_icon.text(); nocon = self.chk_nocon._on
+            tgt = self.txt_file.text()
+            out = self.txt_out.text()
+            icon = self.txt_icon.text()
+            nocon = self.chk_nocon._on
             compress_mode = self.cmb_compress.currentIndex()  # 0=双层压缩, 1=仅内压缩, 2=仅UPX, 3=不压缩
-            tool = PyInstallerTool(self.env_mgr) if self.rb_pyi.isChecked() else NuitkaTool(self.env_mgr)
+            
+            # 获取编译后端选择
+            backend_choice = 0  # 默认自动
+            parallel_jobs = None
+            
+            if self.rb_nuitka.isChecked():
+                backend_text = self.cmb_backend.currentText()
+                if "MSVC" in backend_text:
+                    backend_choice = 1
+                elif "MinGW" in backend_text:
+                    backend_choice = 2
+                
+                # 获取并行任务数
+                jobs_data = self.cmb_jobs.currentData()
+                if jobs_data and jobs_data > 0:
+                    parallel_jobs = jobs_data
+            
+            tool = PyInstallerTool(self.env_mgr) if self.rb_pyi.isChecked() else NuitkaTool(self.env_mgr, backend_choice, parallel_jobs)
             
             # 仅检查打包工具，不自动安装，因为用户已经有依赖管理选项
             if not tool.check_installed():
                 self.sig_log_bridge.emit(f"打包工具 {tool.name} 未安装。请通过依赖管理功能手动安装。\n")
-                # 这里不自动安装，而是提示用户去手动安装，避免重复逻辑和用户体验冲突
                 self.sig_done.emit(False)
                 return
 
+            # 如果使用 Nuitka，提前检测 GUI 框架并给出警告
+            if isinstance(tool, NuitkaTool):
+                detected_guis = tool._detect_gui_frameworks(tgt, self.sig_log_bridge)
+                if detected_guis:
+                    self.sig_log_bridge.emit(f"检测到 GUI 框架: {', '.join(detected_guis)}\n")
+
             cmd, env = tool.get_cmd(tgt, out, nocon, icon, compress_mode)
             self.sig_log_bridge.emit(f"Run: {' '.join(cmd)}\n")
-            runner = ToolRunner(cmd, env); runner.signals.log.connect(self.sig_log_bridge.emit); runner.signals.finished.connect(self.sig_done.emit); runner.run()
-        except Exception as e: self.sig_log_bridge.emit(str(e)); self.sig_done.emit(False)
-    def done(self, s):
-        self.timer.stop(); self.btn_run.setEnabled(True); self.btn_run.setText("立即打包")
-        if s: 
-            QMessageBox.information(self, "OK", "Success!"); 
-            try: os.startfile(self.txt_out.text())
-            except Exception as e: self.sig_log_bridge.emit(f"无法打开输出目录: {e}\n")
-        else: QMessageBox.critical(self, "Err", "Failed.")
-        # try: self.sig_log_bridge.disconnect() # 信号是永久连接，无需断开
-        # except: pass
+            
+            # 创建 runner 并保存引用
+            runner = ToolRunner(cmd, env)
+            self._current_runner = runner
+            
+            # 连接信号
+            runner.signals.log.connect(self.sig_log_bridge.emit)
+            runner.signals.finished.connect(self.sig_done.emit)
+            runner.signals.cancelled.connect(self.sig_cancelled.emit)
+            
+            # 运行
+            runner.run()
+            
+        except Exception as e:
+            self.sig_log_bridge.emit(str(e))
+            self.sig_done.emit(False)
+    
+    def done(self, success):
+        """打包完成处理"""
+        self._reset_after_packing()
+        
+        if success:
+            QMessageBox.information(self, "完成", "打包成功！")
+            try:
+                os.startfile(self.txt_out.text())
+            except Exception as e:
+                self.sig_log_bridge.emit(f"无法打开输出目录: {e}\n")
+        else:
+            QMessageBox.critical(self, "错误", "打包失败，请检查日志。")
 
 if __name__ == "__main__":
     # 使用类名直接调用静态/类方法，不需要实例
