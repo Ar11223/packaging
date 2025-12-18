@@ -18,6 +18,8 @@ import subprocess
 import threading
 import time
 import ast # 导入 ast 模块
+import importlib.util
+import pkgutil
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QLabel, QLineEdit, QPushButton, QRadioButton, 
                              QCheckBox, QTextEdit, QFileDialog, QComboBox, QSlider, 
@@ -287,39 +289,143 @@ def _get_silent_startupinfo():
 
 
 class EnvManager:
-    def __init__(self): self.python_path = sys.executable
+    # 完整的Python标准库列表（Python 3.8+）
+    STANDARD_LIBS = {
+        'abc', 'aifc', 'argparse', 'array', 'ast', 'asynchat', 'asyncio', 'asyncore',
+        'atexit', 'audioop', 'base64', 'bdb', 'binascii', 'binhex', 'bisect',
+        'builtins', 'bz2', 'calendar', 'cgi', 'cgitb', 'chunk', 'cmath', 'cmd',
+        'code', 'codecs', 'codeop', 'collections', 'colorsys', 'compileall',
+        'concurrent', 'configparser', 'contextlib', 'contextvars', 'copy',
+        'copyreg', 'cProfile', 'crypt', 'csv', 'ctypes', 'curses', 'dataclasses',
+        'datetime', 'dbm', 'decimal', 'difflib', 'dis', 'distutils', 'doctest',
+        'email', 'encodings', 'enum', 'errno', 'faulthandler', 'fcntl', 'filecmp',
+        'fileinput', 'fnmatch', 'fractions', 'ftplib', 'functools', 'gc',
+        'getopt', 'getpass', 'gettext', 'glob', 'graphlib', 'grp', 'gzip',
+        'hashlib', 'heapq', 'hmac', 'html', 'http', 'idlelib', 'imaplib',
+        'imghdr', 'imp', 'importlib', 'inspect', 'io', 'ipaddress', 'itertools',
+        'json', 'keyword', 'lib2to3', 'linecache', 'locale', 'logging', 'lzma',
+        'mailbox', 'mailcap', 'marshal', 'math', 'mimetypes', 'mmap', 'modulefinder',
+        'msilib', 'msvcrt', 'multiprocessing', 'netrc', 'nis', 'nntplib', 'numbers',
+        'operator', 'optparse', 'os', 'ossaudiodev', 'pathlib', 'pdb', 'pickle',
+        'pickletools', 'pipes', 'pkgutil', 'platform', 'plistlib', 'poplib',
+        'posix', 'posixpath', 'pprint', 'profile', 'pstats', 'pty', 'pwd',
+        'py_compile', 'pyclbr', 'pydoc', 'queue', 'quopri', 'random', 're',
+        'readline', 'reprlib', 'resource', 'rlcompleter', 'runpy', 'sched',
+        'secrets', 'select', 'selectors', 'shelve', 'shlex', 'shutil', 'signal',
+        'site', 'smtpd', 'smtplib', 'sndhdr', 'socket', 'socketserver', 'spwd',
+        'sqlite3', 'ssl', 'stat', 'statistics', 'string', 'stringprep', 'struct',
+        'subprocess', 'sunau', 'symtable', 'sys', 'sysconfig', 'syslog', 'tabnanny',
+        'tarfile', 'telnetlib', 'tempfile', 'termios', 'test', 'textwrap', 'threading',
+        'time', 'timeit', 'tkinter', 'token', 'tokenize', 'trace', 'traceback',
+        'tracemalloc', 'tty', 'turtle', 'turtledemo', 'types', 'typing',
+        'unicodedata', 'unittest', 'urllib', 'uu', 'uuid', 'venv', 'warnings',
+        'wave', 'weakref', 'webbrowser', 'winreg', 'winsound', 'wsgiref',
+        'xdrlib', 'xml', 'xmlrpc', 'zipapp', 'zipfile', 'zipimport', 'zlib',
+        '_thread', '_winapi', 'nt', 'ntpath', 'zoneinfo', 'graphlib', 'tomllib',
+    }
+    
+    # 导入名到pip包名的映射
+    PACKAGE_MAP = {
+        "PIL": "Pillow",
+        "cv2": "opencv-python",
+        "yaml": "PyYAML",
+        "sklearn": "scikit-learn",
+        "skimage": "scikit-image",
+        "bs4": "beautifulsoup4",
+        "dateutil": "python-dateutil",
+        "serial": "pyserial",
+        "usb": "pyusb",
+        "Crypto": "pycryptodome",
+        "OpenSSL": "pyOpenSSL",
+        "wx": "wxPython",
+        "nuitka": "nuitka",
+        "PyInstaller": "PyInstaller",
+        "PyQt5": "PyQt5",
+        "PyQt6": "PyQt6",
+        "PySide2": "PySide2",
+        "PySide6": "PySide6",
+    }
+    
+    CHECK_TIMEOUT = 10  # 检查包的超时时间（秒）
+    INSTALL_TIMEOUT = 300  # 安装包的超时时间（秒）
+    
+    def __init__(self):
+        self.python_path = sys.executable
+        self._cached_installed_packages = None
+        
     def set_python_path(self, path):
-        if os.path.exists(path): self.python_path = path; return True
+        if os.path.exists(path):
+            self.python_path = path
+            self._cached_installed_packages = None
+            return True
         return False
 
     def get_python_version(self):
         try:
-            result = subprocess.run([self.python_path, "--version"], capture_output=True, text=True, check=True, startupinfo=_get_silent_startupinfo())
+            result = subprocess.run(
+                [self.python_path, "--version"],
+                capture_output=True, text=True, check=True,
+                timeout=self.CHECK_TIMEOUT,
+                startupinfo=_get_silent_startupinfo()
+            )
             return result.stdout.strip()
+        except subprocess.TimeoutExpired:
+            return "版本获取超时"
         except Exception:
             return "未知版本"
 
-    def install_package(self, pkg, signal):
-        # 导入名到 pip 包名的映射
-        package_map = {
-            "PIL": "Pillow",
-            "cv2": "opencv-python",
-            "yaml": "PyYAML",
-            "nuitka": "nuitka",
-            "PyInstaller": "PyInstaller",
-            "PyQt6": "PyQt6", # 虽然PyQt6是标准库，但用户可能希望显式安装
-        }
-        pip_pkg_name = package_map.get(pkg, pkg)
+    def _get_installed_packages(self, signal=None):
+        """获取已安装的包列表（使用pip list缓存）"""
+        if self._cached_installed_packages is not None:
+            return self._cached_installed_packages
+        try:
+            result = subprocess.run(
+                [self.python_path, "-m", "pip", "list", "--format=freeze"],
+                capture_output=True, text=True,
+                timeout=self.CHECK_TIMEOUT,
+                startupinfo=_get_silent_startupinfo()
+            )
+            if result.returncode == 0:
+                packages = set()
+                for line in result.stdout.strip().split('\n'):
+                    if '==' in line:
+                        packages.add(line.split('==')[0].lower())
+                self._cached_installed_packages = packages
+                return packages
+        except subprocess.TimeoutExpired:
+            if signal: signal.emit("警告: 获取已安装包列表超时\n")
+        except Exception as e:
+            if signal: signal.emit(f"警告: 获取已安装包列表失败: {e}\n")
+        return set()
 
+    def install_package(self, pkg, signal):
+        """安装指定的包，带超时和进度反馈"""
+        pip_pkg_name = self.PACKAGE_MAP.get(pkg, pkg)
         cmd = [self.python_path, "-m", "pip", "install", pip_pkg_name]
         signal.emit(f"安装依赖: {' '.join(cmd)}\n")
         try:
-            # 捕获 pip 的标准输出和标准错误，并将其发送到日志信号
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, universal_newlines=True, startupinfo=_get_silent_startupinfo())
-            for line in process.stdout:
-                signal.emit(line) # 实时输出 pip 的日志
-            process.wait()
+            process = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, bufsize=1, universal_newlines=True,
+                startupinfo=_get_silent_startupinfo()
+            )
+            start_time = time.time()
+            while True:
+                if time.time() - start_time > self.INSTALL_TIMEOUT:
+                    process.kill()
+                    signal.emit(f"安装依赖 {pkg} 超时（超过 {self.INSTALL_TIMEOUT} 秒）\n")
+                    return False
+                try:
+                    line = process.stdout.readline()
+                    if line:
+                        signal.emit(line)
+                    elif process.poll() is not None:
+                        break
+                except Exception:
+                    break
+            self._cached_installed_packages = None
             if process.returncode == 0:
+                signal.emit(f"依赖 {pkg} 安装成功\n")
                 return True
             else:
                 signal.emit(f"安装依赖 {pkg} 失败，退出码: {process.returncode}\n")
@@ -328,16 +434,30 @@ class EnvManager:
             signal.emit(f"安装依赖 {pkg} 时发生异常: {e}\n")
             return False
 
-    def check_package_installed(self, pkg, signal):
-        try:
-            subprocess.check_call([self.python_path, "-c", f"import {pkg}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    def check_package_installed(self, pkg, signal=None):
+        """检查包是否已安装，使用缓存和超时机制"""
+        installed_packages = self._get_installed_packages(signal)
+        pip_pkg_name = self.PACKAGE_MAP.get(pkg, pkg).lower()
+        if pip_pkg_name in installed_packages or pkg.lower() in installed_packages:
             return True
-        except:
+        try:
+            result = subprocess.run(
+                [self.python_path, "-c", f"import {pkg}"],
+                capture_output=True, timeout=self.CHECK_TIMEOUT,
+                startupinfo=_get_silent_startupinfo()
+            )
+            return result.returncode == 0
+        except subprocess.TimeoutExpired:
+            if signal: signal.emit(f"警告: 检查包 {pkg} 是否安装超时\n")
+            return False
+        except Exception:
             return False
 
     def parse_dependencies(self, script_path, signal):
+        """解析脚本的依赖，排除标准库"""
         dependencies = set()
-        standard_libs = set(sys.builtin_module_names + ('os', 'sys', 'threading', 'time', 'subprocess', 'ast', 'PyQt6')) # 增加PyQt6到标准库
+        all_standard_libs = self.STANDARD_LIBS.copy()
+        all_standard_libs.update(sys.builtin_module_names)
         try:
             with open(script_path, "r", encoding="utf-8") as f:
                 tree = ast.parse(f.read(), filename=script_path)
@@ -345,16 +465,22 @@ class EnvManager:
                 if isinstance(node, ast.Import):
                     for alias in node.names:
                         module_name = alias.name.split('.')[0]
-                        if module_name not in standard_libs:
+                        if module_name not in all_standard_libs:
                             dependencies.add(module_name)
                 elif isinstance(node, ast.ImportFrom):
                     if node.module:
                         module_name = node.module.split('.')[0]
-                        if module_name not in standard_libs:
+                        if module_name not in all_standard_libs:
                             dependencies.add(module_name)
+        except SyntaxError as e:
+            signal.emit(f"脚本语法错误，无法解析依赖: {e}\n")
         except Exception as e:
             signal.emit(f"解析依赖时发生错误: {e}\n")
         return sorted(list(dependencies))
+    
+    def clear_cache(self):
+        """清除包缓存"""
+        self._cached_installed_packages = None
 
 class BaseTool:
     def __init__(self, env): self.env = env
@@ -370,30 +496,46 @@ class BaseTool:
 
 class PyInstallerTool(BaseTool):
     def __init__(self, env): self.env = env; self.name = "PyInstaller"; self.module_name = "PyInstaller"
-    def get_cmd(self, target, out, nocon, icon, upx):
+    def get_cmd(self, target, out, nocon, icon, compress_mode):
+        """
+        compress_mode: 0=双层压缩, 1=仅内压缩, 2=仅UPX, 3=不压缩
+        """
         if not os.path.exists(out): os.makedirs(out)
         cmd = [self.env.python_path, "-m", "PyInstaller", "-F", target, "--distpath", out, "--specpath", out, "--workpath", os.path.join(out, "build_temp")]
         if nocon: cmd.append("-w")
         if icon: cmd.extend(["--icon", icon])
-        if upx:
+        
+        # 压缩模式处理
+        if compress_mode == 0:  # 双层压缩：内压缩 + UPX
             u = self.find_upx()
             if u: cmd.extend(["--upx-dir", u])
             else: cmd.append("--noupx")
-        else: cmd.append("--noupx")
+        elif compress_mode == 1:  # 仅内压缩：禁用UPX
+            cmd.append("--noupx")
+        elif compress_mode == 2:  # 仅UPX：PyInstaller内压缩无法完全禁用，但启用UPX
+            u = self.find_upx()
+            if u: cmd.extend(["--upx-dir", u])
+            else: cmd.append("--noupx")
+        else:  # 不压缩：禁用UPX
+            cmd.append("--noupx")
+        
         return cmd, None
 
 class NuitkaTool(BaseTool):
     def __init__(self, env): self.env = env; self.name = "Nuitka"; self.module_name = "nuitka"
-    def get_cmd(self, target, out, nocon, icon, upx):
+    def get_cmd(self, target, out, nocon, icon, compress_mode):
+        """
+        compress_mode: 0=双层压缩, 1=仅内压缩, 2=仅UPX, 3=不压缩
+        """
         # 1. 定位 MinGW
         base = BASE_DIR
         mingw = os.path.join(base, "tools", MINGW_DIR_NAME, "mingw64", "bin")
-        if not os.path.exists(mingw): 
+        if not os.path.exists(mingw):
             mingw = os.path.join(base, "tools", MINGW_DIR_NAME, "bin")
         
         # 2. 注入环境变量
         env = os.environ.copy()
-        if os.path.exists(mingw): 
+        if os.path.exists(mingw):
             env["PATH"] = mingw + os.pathsep + env["PATH"]
             
         # 3. 准备输出
@@ -401,10 +543,10 @@ class NuitkaTool(BaseTool):
         
         # 4. 构建命令 (修复版)
         cmd = [
-            self.env.python_path, 
-            "-m", "nuitka", 
-            "--standalone", 
-            "--onefile", 
+            self.env.python_path,
+            "-m", "nuitka",
+            "--standalone",
+            "--onefile",
             
             # --- 修复核心: 启用 PyQt6 插件 ---
             "--enable-plugin=pyqt6",
@@ -422,22 +564,33 @@ class NuitkaTool(BaseTool):
         cmd.append("--mingw64")
 
         # 控制台
-        if nocon: 
+        if nocon:
             cmd.append("--windows-console-mode=disable")
         
         # 图标
-        if icon: 
+        if icon:
             cmd.append(f"--windows-icon-from-ico={icon}")
-            
-        # UPX
-        if upx:
+        
+        # 压缩模式处理
+        if compress_mode == 0:  # 双层压缩：内压缩 + UPX
             u = self.find_upx()
-            if u: 
+            if u:
                 cmd.append("--enable-plugin=upx")
                 env["PATH"] = u + os.pathsep + env["PATH"]
-            else: 
+            else:
                 cmd.append("--disable-plugin=upx")
-        else: 
+        elif compress_mode == 1:  # 仅内压缩：禁用UPX
+            cmd.append("--disable-plugin=upx")
+        elif compress_mode == 2:  # 仅UPX：禁用内压缩，启用UPX
+            cmd.append("--onefile-no-compression")
+            u = self.find_upx()
+            if u:
+                cmd.append("--enable-plugin=upx")
+                env["PATH"] = u + os.pathsep + env["PATH"]
+            else:
+                cmd.append("--disable-plugin=upx")
+        else:  # 不压缩：禁用内压缩和UPX
+            cmd.append("--onefile-no-compression")
             cmd.append("--disable-plugin=upx")
             
         return cmd, env
@@ -457,6 +610,125 @@ class ToolRunner(QObject):
             self.signals.finished.emit(p.returncode == 0)
         except Exception as e: self.signals.log.emit(str(e)); self.signals.finished.emit(False)
 
+
+# ===========================
+# 后台依赖检查工作线程
+# ===========================
+class DependencyCheckSignals(QObject):
+    """依赖检查信号类"""
+    log = pyqtSignal(str)           # 日志输出
+    progress = pyqtSignal(str)      # 进度更新
+    finished = pyqtSignal(list)     # 完成，返回缺失的依赖列表
+    error = pyqtSignal(str)         # 错误信息
+
+
+class DependencyCheckWorker(QObject):
+    """后台依赖检查工作线程"""
+    def __init__(self, env_mgr, script_path):
+        super().__init__()
+        self.env_mgr = env_mgr
+        self.script_path = script_path
+        self.signals = DependencyCheckSignals()
+        self._is_cancelled = False
+    
+    def cancel(self):
+        """取消检查"""
+        self._is_cancelled = True
+    
+    def run(self):
+        """执行依赖检查"""
+        try:
+            self.signals.log.emit("开始检测脚本依赖...\n")
+            self.signals.progress.emit("正在解析脚本...")
+            
+            # 解析依赖
+            dependencies = self.env_mgr.parse_dependencies(self.script_path, self.signals.log)
+            
+            if self._is_cancelled:
+                self.signals.log.emit("依赖检查已取消\n")
+                self.signals.finished.emit([])
+                return
+            
+            if not dependencies:
+                self.signals.log.emit("未检测到第三方依赖\n")
+                self.signals.finished.emit([])
+                return
+            
+            self.signals.log.emit(f"检测到 {len(dependencies)} 个第三方依赖: {', '.join(dependencies)}\n")
+            
+            # 检查每个依赖是否已安装
+            missing_deps = []
+            total = len(dependencies)
+            for i, dep in enumerate(dependencies):
+                if self._is_cancelled:
+                    self.signals.log.emit("依赖检查已取消\n")
+                    self.signals.finished.emit([])
+                    return
+                
+                self.signals.progress.emit(f"检查依赖 ({i+1}/{total}): {dep}")
+                self.signals.log.emit(f"检查依赖: {dep}...")
+                
+                if not self.env_mgr.check_package_installed(dep, self.signals.log):
+                    missing_deps.append(dep)
+                    self.signals.log.emit(f" 未安装\n")
+                else:
+                    self.signals.log.emit(f" 已安装\n")
+            
+            if missing_deps:
+                self.signals.log.emit(f"\n缺失依赖: {', '.join(missing_deps)}\n")
+            else:
+                self.signals.log.emit("\n所有依赖均已安装\n")
+            
+            self.signals.finished.emit(missing_deps)
+            
+        except Exception as e:
+            self.signals.error.emit(f"依赖检查时发生错误: {str(e)}")
+            self.signals.finished.emit([])
+
+
+class DependencyInstallWorker(QObject):
+    """后台依赖安装工作线程"""
+    def __init__(self, env_mgr, packages):
+        super().__init__()
+        self.env_mgr = env_mgr
+        self.packages = packages
+        self.signals = DependencyCheckSignals()
+        self._is_cancelled = False
+    
+    def cancel(self):
+        """取消安装"""
+        self._is_cancelled = True
+    
+    def run(self):
+        """执行依赖安装"""
+        try:
+            total = len(self.packages)
+            success_count = 0
+            failed_packages = []
+            
+            for i, pkg in enumerate(self.packages):
+                if self._is_cancelled:
+                    self.signals.log.emit("依赖安装已取消\n")
+                    break
+                
+                self.signals.progress.emit(f"安装依赖 ({i+1}/{total}): {pkg}")
+                
+                if self.env_mgr.install_package(pkg, self.signals.log):
+                    success_count += 1
+                else:
+                    failed_packages.append(pkg)
+            
+            if failed_packages:
+                self.signals.log.emit(f"\n安装完成: {success_count}/{total} 成功, 失败: {', '.join(failed_packages)}\n")
+                self.signals.finished.emit(failed_packages)
+            else:
+                self.signals.log.emit(f"\n所有 {total} 个依赖安装成功\n")
+                self.signals.finished.emit([])
+                
+        except Exception as e:
+            self.signals.error.emit(f"依赖安装时发生错误: {str(e)}")
+            self.signals.finished.emit(self.packages)
+
 # ===========================
 # UI 组件
 # ===========================
@@ -473,14 +745,16 @@ class ToggleSwitch(QWidget):
 
     def __init__(self, parent=None, w=50, h=28):
         super().__init__(parent)
-        self._w, self._h = w, h
         self.setFixedSize(w, h)
-
-        self._on = False                       # 开关状态
-        self._margin = 2                       # 滑块与背景边缘间距
+        self._on = False
+        self._margin = 2
         self._thumb_radius = (h - 2 * self._margin) // 2
         self._track_radius = h // 2
+        self._w, self._h = w, h
+
         self._thumb_x = self._margin # 初始化 _thumb_x 属性
+
+        
 
         # 颜色可自定义
         self._track_off_color = "#c5c5c5"
@@ -752,7 +1026,9 @@ class DependencySelectionDialog(QDialog):
 # ===========================
 class MainWindow(QMainWindow):
     sig_log_bridge = pyqtSignal(str) # 将信号定义为类属性
-    sig_done = pyqtSignal(bool) # 【新增这行】定义结束信号
+    sig_done = pyqtSignal(bool) # 定义结束信号
+    sig_dep_check_done = pyqtSignal(list)  # 依赖检查完成信号
+    sig_dep_install_done = pyqtSignal(list)  # 依赖安装完成信号
 
     def __init__(self):
         super().__init__()
@@ -760,15 +1036,23 @@ class MainWindow(QMainWindow):
         self.resize(800, 580)
         self.env_mgr = EnvManager()
         
+        # 后台工作线程变量
+        self._dep_check_worker = None
+        self._dep_check_thread = None
+        self._dep_install_worker = None
+        self._dep_install_thread = None
+        self._pending_start_after_install = False  # 是否在安装完成后启动打包
+        
         # 自动加载 name.png 图标
         icon_path = os.path.join(BASE_DIR, "name.png")
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
             
         self.timer = QTimer(); self.timer.timeout.connect(self.tick); self.start_ts = 0
-        # self.sig_log_bridge = pyqtSignal(str) # 移除此处，已在类级别定义
         self.sig_log_bridge.connect(self.append_log) # 连接信号到日志追加方法
-        self.sig_done.connect(self.done) # 【新增这行】连接信号到处理函数
+        self.sig_done.connect(self.done) # 连接信号到处理函数
+        self.sig_dep_check_done.connect(self._on_dep_check_done)  # 连接依赖检查完成信号
+        self.sig_dep_install_done.connect(self._on_dep_install_done)  # 连接依赖安装完成信号
         self.init_ui()
 
     def init_ui(self):
@@ -920,15 +1204,26 @@ class MainWindow(QMainWindow):
         v_left_column.addLayout(h_nocon)
         v_left_column.addStretch() # 确保左侧内容向上对齐
 
-        # 右侧布局: Nuitka 和 UPX 压缩
+        # 右侧布局: Nuitka 和 压缩方式选择
         v_right_column = QVBoxLayout()
         v_right_column.addWidget(self.rb_nuitka)
 
-        h_upx = QHBoxLayout()
-        self.chk_upx = ToggleSwitch(self, w=38, h=22); self.chk_upx.set_on(True)
-        self.lbl_upx = QLabel("UPX 压缩")
-        h_upx.addWidget(self.chk_upx); h_upx.addWidget(self.lbl_upx); h_upx.addStretch()
-        v_right_column.addLayout(h_upx)
+        # 压缩方式选择
+        h_compress = QHBoxLayout()
+        lbl_compress = QLabel("压缩方式:")
+        self.cmb_compress = QComboBox()
+        self.cmb_compress.addItems(["双层压缩", "仅内压缩", "仅UPX", "不压缩"])
+        self.cmb_compress.setCurrentIndex(0)  # 默认双层压缩
+        self.cmb_compress.setToolTip(
+            "双层压缩：内压缩 + UPX压缩（体积最小）\n"
+            "仅内压缩：仅使用打包工具自带压缩\n"
+            "仅UPX：仅使用UPX压缩\n"
+            "不压缩：不进行任何压缩（体积最大）"
+        )
+        h_compress.addWidget(lbl_compress)
+        h_compress.addWidget(self.cmb_compress)
+        h_compress.addStretch()
+        v_right_column.addLayout(h_compress)
         v_right_column.addStretch() # 确保右侧内容向上对齐
 
         h_opt_main.addLayout(v_left_column)
@@ -1007,98 +1302,156 @@ class MainWindow(QMainWindow):
     def append_log(self, t): self.txt_log.append(t.strip()); self.txt_log.verticalScrollBar().setValue(100000)
     # sig_log_bridge = pyqtSignal(str) # 移除此处，已在 __init__ 中定义
     def check_and_install_dependencies(self):
+        """手动检查并安装依赖（使用后台线程）"""
         script_path = self.txt_file.text()
         if not script_path or not os.path.exists(script_path):
             QMessageBox.warning(self, "提示", "请先选择一个有效的入口文件。")
             return
-
-        self.sig_log_bridge.emit("开始检测脚本依赖...\n")
-        dependencies = self.env_mgr.parse_dependencies(script_path, self.sig_log_bridge)
         
-        missing_deps = []
-        for dep in dependencies:
-            if not self.env_mgr.check_package_installed(dep, self.sig_log_bridge):
-                missing_deps.append(dep)
+        # 禁用按钮防止重复点击
+        self.btn_run.setEnabled(False)
+        self.btn_run.setText("检查依赖中...")
+        self._pending_start_after_install = False
+        
+        # 启动后台依赖检查
+        self._start_dep_check(script_path)
+    
+    def _start_dep_check(self, script_path):
+        """启动后台依赖检查线程"""
+        # 清除包缓存以确保获取最新状态
+        self.env_mgr.clear_cache()
+        
+        # 创建工作线程
+        self._dep_check_worker = DependencyCheckWorker(self.env_mgr, script_path)
+        self._dep_check_thread = threading.Thread(target=self._run_dep_check, daemon=True)
+        
+        # 连接信号
+        self._dep_check_worker.signals.log.connect(self.sig_log_bridge.emit)
+        self._dep_check_worker.signals.progress.connect(lambda msg: self.btn_run.setText(msg))
+        self._dep_check_worker.signals.finished.connect(self.sig_dep_check_done.emit)
+        self._dep_check_worker.signals.error.connect(self.sig_log_bridge.emit)
+        
+        # 启动线程
+        self._dep_check_thread.start()
+    
+    def _run_dep_check(self):
+        """在后台线程中运行依赖检查"""
+        if self._dep_check_worker:
+            self._dep_check_worker.run()
+    
+    def _on_dep_check_done(self, missing_deps):
+        """依赖检查完成回调"""
+        self.btn_run.setText("立即打包")
         
         if missing_deps:
+            # 显示依赖选择对话框
             dialog = DependencySelectionDialog(self, missing_deps)
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 selected_to_install = dialog.selected_dependencies
                 if selected_to_install:
-                    self.sig_log_bridge.emit(f"开始安装选中的依赖: {', '.join(selected_to_install)}\n")
-                    success = True
-                    for dep in selected_to_install:
-                        if not self.env_mgr.install_package(dep, self.sig_log_bridge):
-                            success = False
-                            break
-                    if success:
-                        self.sig_log_bridge.emit("所有选中依赖安装完成。\n")
-                        QMessageBox.information(self, "成功", "所有选中依赖安装完成！")
-                    else:
-                        self.sig_log_bridge.emit("部分依赖安装失败。\n")
-                        QMessageBox.critical(self, "失败", "部分依赖安装失败，请检查日志。")
+                    # 启动后台安装
+                    self._start_dep_install(selected_to_install)
+                    return  # 等待安装完成
                 else:
                     self.sig_log_bridge.emit("没有选择任何依赖进行安装。\n")
+                    if self._pending_start_after_install:
+                        # 继续打包
+                        self._do_start_packing()
+                    else:
+                        self.btn_run.setEnabled(True)
             else:
                 self.sig_log_bridge.emit("用户取消了依赖安装。\n")
+                if self._pending_start_after_install:
+                    QMessageBox.warning(self, "提示", "您选择了不安装缺失依赖，打包可能会失败。")
+                    self._do_start_packing()
+                else:
+                    self.btn_run.setEnabled(True)
         else:
             self.sig_log_bridge.emit("所有依赖均已安装。\n")
-            QMessageBox.information(self, "成功", "所有依赖均已安装。")
+            if self._pending_start_after_install:
+                # 继续打包
+                self._do_start_packing()
+            else:
+                QMessageBox.information(self, "成功", "所有依赖均已安装。")
+                self.btn_run.setEnabled(True)
+    
+    def _start_dep_install(self, packages):
+        """启动后台依赖安装线程"""
+        self.btn_run.setText("安装依赖中...")
+        
+        # 创建工作线程
+        self._dep_install_worker = DependencyInstallWorker(self.env_mgr, packages)
+        self._dep_install_thread = threading.Thread(target=self._run_dep_install, daemon=True)
+        
+        # 连接信号
+        self._dep_install_worker.signals.log.connect(self.sig_log_bridge.emit)
+        self._dep_install_worker.signals.progress.connect(lambda msg: self.btn_run.setText(msg))
+        self._dep_install_worker.signals.finished.connect(self.sig_dep_install_done.emit)
+        self._dep_install_worker.signals.error.connect(self.sig_log_bridge.emit)
+        
+        # 启动线程
+        self._dep_install_thread.start()
+    
+    def _run_dep_install(self):
+        """在后台线程中运行依赖安装"""
+        if self._dep_install_worker:
+            self._dep_install_worker.run()
+    
+    def _on_dep_install_done(self, failed_packages):
+        """依赖安装完成回调"""
+        self.btn_run.setText("立即打包")
+        
+        if failed_packages:
+            self.sig_log_bridge.emit(f"以下依赖安装失败: {', '.join(failed_packages)}\n")
+            if self._pending_start_after_install:
+                QMessageBox.critical(self, "错误", "部分依赖安装失败，打包中止。请检查日志。")
+                self.btn_run.setEnabled(True)
+            else:
+                QMessageBox.critical(self, "失败", "部分依赖安装失败，请检查日志。")
+                self.btn_run.setEnabled(True)
+        else:
+            self.sig_log_bridge.emit("所有选中依赖安装完成。\n")
+            if self._pending_start_after_install:
+                # 继续打包
+                self._do_start_packing()
+            else:
+                QMessageBox.information(self, "成功", "所有选中依赖安装完成！")
+                self.btn_run.setEnabled(True)
 
 
     def start(self):
-        tgt = self.txt_file.text(); 
-        if not tgt: return QMessageBox.warning(self, "!", "请选择入口文件")
+        """开始打包流程"""
+        tgt = self.txt_file.text()
+        if not tgt:
+            return QMessageBox.warning(self, "!", "请选择入口文件")
 
         # 在开始打包前检查依赖
         if self.chk_dep_check._on:
             self.sig_log_bridge.emit("自动依赖检测已启用，开始检测...\n")
-            
-            script_path = self.txt_file.text()
-            dependencies = self.env_mgr.parse_dependencies(script_path, self.sig_log_bridge)
-            missing_deps = []
-            for dep in dependencies:
-                if not self.env_mgr.check_package_installed(dep, self.sig_log_bridge):
-                    missing_deps.append(dep)
-
-            if missing_deps:
-                dialog = DependencySelectionDialog(self, missing_deps)
-                if dialog.exec() == QDialog.DialogCode.Accepted:
-                    selected_to_install = dialog.selected_dependencies
-                    if selected_to_install:
-                        self.sig_log_bridge.emit(f"开始安装选中的依赖: {', '.join(selected_to_install)}\n")
-                        success = True
-                        for dep in selected_to_install:
-                            if not self.env_mgr.install_package(dep, self.sig_log_bridge):
-                                success = False
-                                break
-                        if success:
-                            self.sig_log_bridge.emit("所有选中依赖安装完成。\n")
-                            # 这里不显示 QMessageBox，因为打包会继续
-                        else:
-                            self.sig_log_bridge.emit("部分依赖安装失败。\n")
-                            QMessageBox.critical(self, "错误", "部分依赖安装失败，打包中止。请检查日志。")
-                            return # 中止打包
-                    else:
-                        self.sig_log_bridge.emit("没有选择任何依赖进行安装，打包可能会失败。\n")
-                        QMessageBox.warning(self, "提示", "您选择了不安装缺失依赖，打包可能会失败。")
-                else:
-                    self.sig_log_bridge.emit("用户取消了依赖安装，打包可能会失败。\n")
-                    QMessageBox.warning(self, "提示", "您选择了不安装缺失依赖，打包可能会失败。")
-            else:
-                self.sig_log_bridge.emit("所有依赖均已安装。\n")
-        
-        # 依赖检查完成后，无论是否安装，都继续打包流程
+            self.btn_run.setEnabled(False)
+            self.btn_run.setText("检查依赖中...")
+            self._pending_start_after_install = True  # 标记在检查/安装完成后启动打包
+            self._start_dep_check(tgt)
+        else:
+            # 直接开始打包
+            self._do_start_packing()
+    
+    def _do_start_packing(self):
+        """实际执行打包操作"""
         self.btn_run.setEnabled(False)
         self.btn_run.setText("打包构建中...")
         self.txt_log.clear()
-        self.start_ts = time.time(); self.lbl_timer.setVisible(True); self.timer.start(1000)
+        self.start_ts = time.time()
+        self.lbl_timer.setVisible(True)
+        self.timer.start(1000)
+        self._pending_start_after_install = False
         threading.Thread(target=self.worker, daemon=True).start()
 
     def worker(self):
         # self.sig_log_bridge.connect(self.append_log) # 信号连接已在 __init__ 中完成，无需重复
         try:
-            tgt = self.txt_file.text(); out = self.txt_out.text(); icon = self.txt_icon.text(); nocon = self.chk_nocon._on; upx = self.chk_upx._on
+            tgt = self.txt_file.text(); out = self.txt_out.text(); icon = self.txt_icon.text(); nocon = self.chk_nocon._on
+            compress_mode = self.cmb_compress.currentIndex()  # 0=双层压缩, 1=仅内压缩, 2=仅UPX, 3=不压缩
             tool = PyInstallerTool(self.env_mgr) if self.rb_pyi.isChecked() else NuitkaTool(self.env_mgr)
             
             # 仅检查打包工具，不自动安装，因为用户已经有依赖管理选项
@@ -1108,7 +1461,7 @@ class MainWindow(QMainWindow):
                 self.sig_done.emit(False)
                 return
 
-            cmd, env = tool.get_cmd(tgt, out, nocon, icon, upx)
+            cmd, env = tool.get_cmd(tgt, out, nocon, icon, compress_mode)
             self.sig_log_bridge.emit(f"Run: {' '.join(cmd)}\n")
             runner = ToolRunner(cmd, env); runner.signals.log.connect(self.sig_log_bridge.emit); runner.signals.finished.connect(self.sig_done.emit); runner.run()
         except Exception as e: self.sig_log_bridge.emit(str(e)); self.sig_done.emit(False)
@@ -1123,18 +1476,16 @@ class MainWindow(QMainWindow):
         # except: pass
 
 if __name__ == "__main__":
+    # 使用类名直接调用静态/类方法，不需要实例
+    if hasattr(Qt.ApplicationAttribute, 'AA_EnableHighDpiScaling'):
+        QApplication.setAttribute(Qt.ApplicationAttribute.AA_EnableHighDpiScaling, True)
+    if hasattr(Qt.ApplicationAttribute, 'AA_UseHighDpiPixmaps'):
+        QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
+    # 之后再创建实例
     app = QApplication(sys.argv)
     app.setStyleSheet(STYLESHEET)
-
-    # 显式设置应用程序的默认字体，以避免某些环境下字体大小为0
-    default_font = QFont("Segoe UI", 9)  # 设置一个合理的默认字体和大小
+    default_font = QFont("Segoe UI", 9)
     app.setFont(default_font)
-    
-    if hasattr(Qt.ApplicationAttribute, 'AA_EnableHighDpiScaling'):
-        app.setAttribute(Qt.ApplicationAttribute.AA_EnableHighDpiScaling, True)
-    if hasattr(Qt.ApplicationAttribute, 'AA_UseHighDpiPixmaps'):
-        app.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
-
     w = MainWindow()
     w.show()
     sys.exit(app.exec())
